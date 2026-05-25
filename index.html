@@ -681,8 +681,8 @@ function renderCurrent() {
 }
 
 function updateHeaderSolde() {
-  const totalR = appData.revenus.reduce((s,x)=>s+x.montant,0);
-  const totalD = appData.depenses.reduce((s,x)=>s+x.montant,0);
+  const totalR = appData.bancaire.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const totalD = appData.bancaire.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde = totalR - totalD;
   let badge = document.getElementById('header-solde');
   if (!badge) {
@@ -711,67 +711,64 @@ function render() {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function renderDashboard(c) {
-  const totalR = appData.revenus.reduce((s,x)=>s+x.montant,0);
-  const totalD = appData.depenses.reduce((s,x)=>s+x.montant,0);
-  const solde = totalR - totalD;
-  const pos = solde >= 0;
+  // Tout calculé depuis Banque uniquement — pas de doublon
+  const credits = appData.bancaire.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const debits  = appData.bancaire.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const solde   = credits - debits;
+  const pos     = solde >= 0;
 
   // Solde card
   const soldeCard = el('div',{className:'solde-card',style:`background:linear-gradient(135deg,${pos?'#0891b2':'#be185d'},${pos?'#164e63':'#831843'});box-shadow:0 20px 50px ${pos?'rgba(8,145,178,.3)':'rgba(190,24,93,.3)'}`});
-  soldeCard.innerHTML = `<div class="solde-label">SOLDE NET DU MOIS</div><div class="solde-amount">${pos?'+':''}${fmt(solde)}</div>`;
+  soldeCard.innerHTML = `<div class="solde-label">SOLDE NET (depuis Banque)</div><div class="solde-amount">${pos?'+':''}${fmt(solde)}</div>`;
   c.appendChild(soldeCard);
 
-  // Stats
+  // Stats crédits / débits depuis Banque
   const grid = el('div',{className:'stats-grid'});
-  [{l:'Revenus',v:totalR,col:'#22d3ee',ic:'↑',n:appData.revenus.length},
-   {l:'Dépenses',v:totalD,col:'#f472b6',ic:'↓',n:appData.depenses.length}].forEach(({l,v,col,ic,n}) => {
+  [{l:'Crédits',v:credits,col:'#22d3ee',ic:'↑',n:appData.bancaire.filter(x=>x.sens==='credit').length},
+   {l:'Débits', v:debits, col:'#f472b6',ic:'↓',n:appData.bancaire.filter(x=>x.sens==='debit').length}].forEach(({l,v,col,ic,n}) => {
     const card = el('div',{className:'stat-card',style:`background:${col}11;border:1px solid ${col}33`});
-    card.innerHTML = `<div class="stat-icon">${ic}</div><div class="stat-label">${l}</div><div class="stat-value" style="color:${col}">${fmt(v)}</div><div class="stat-count">${n} ligne${n>1?'s':''}</div>`;
+    card.innerHTML = `<div class="stat-icon">${ic}</div><div class="stat-label">${l}</div><div class="stat-value" style="color:${col}">${fmt(v)}</div><div class="stat-count">${n} opération${n>1?'s':''}</div>`;
     grid.appendChild(card);
   });
   c.appendChild(grid);
 
-  // Barres par groupe
-  const byGrp = {};
-  appData.depenses.forEach(d => {
-    const g = getGrpForCat(d.categorie);
-    byGrp[g] = (byGrp[g]||0) + d.montant;
+  // Barres débits par type bancaire
+  const byType = {};
+  appData.bancaire.filter(x=>x.sens==='debit').forEach(d => {
+    byType[d.type] = (byType[d.type]||0) + d.montant;
   });
-  const maxG = Math.max(...Object.values(byGrp),1);
+  const maxT = Math.max(...Object.values(byType),1);
 
-  if (Object.keys(byGrp).length > 0) {
+  if (Object.keys(byType).length > 0) {
     const bcard = el('div',{className:'card'});
-    bcard.innerHTML = '<div class="card-title">DÉPENSES PAR CATÉGORIE</div>';
-    Object.entries(byGrp).sort((a,b)=>b[1]-a[1]).forEach(([grp,val]) => {
-      const col = GRP_COLORS[grp]||'#94a3b8';
+    bcard.innerHTML = '<div class="card-title">DÉBITS PAR TYPE</div>';
+    Object.entries(byType).sort((a,b)=>b[1]-a[1]).forEach(([type,val]) => {
+      const col = BANK_COLORS[type]||'#94a3b8';
       const row = el('div',{className:'bar-row'});
-      row.innerHTML = `<div class="bar-labels"><span style="color:var(--text2)">${grp}</span><span style="font-family:var(--mono);color:${col};font-weight:700">${fmt(val)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(val/maxG*100).toFixed(1)}%;background:${col};box-shadow:0 0 8px ${col}66"></div></div>`;
+      row.innerHTML = `<div class="bar-labels"><span style="color:var(--text2)">${type}</span><span style="font-family:var(--mono);color:${col};font-weight:700">${fmt(val)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(val/maxT*100).toFixed(1)}%;background:${col};box-shadow:0 0 8px ${col}66"></div></div>`;
       bcard.appendChild(row);
     });
     c.appendChild(bcard);
   }
 
-  // Recent transactions
-  const recent = [
-    ...appData.revenus.map(r=>({...r,_t:'revenu'})),
-    ...appData.depenses.map(d=>({...d,_t:'depense'})),
-  ].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,6);
+  // Dernières opérations bancaires
+  const recent = [...appData.bancaire].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,6);
 
   if (recent.length > 0) {
     const rt = el('div',{className:'section-title'});
-    rt.textContent = 'DERNIÈRES TRANSACTIONS';
+    rt.textContent = 'DERNIÈRES OPÉRATIONS BANCAIRES';
     c.appendChild(rt);
     recent.forEach(item => {
-      const isRev = item._t === 'revenu';
-      const col = isRev ? '#22d3ee' : '#f472b6';
+      const isC = item.sens === 'credit';
+      const col = isC ? '#22d3ee' : '#f472b6';
       const row = el('div',{className:'tx-row'});
       row.innerHTML = `
-        <div class="tx-icon" style="background:${col}18">${isRev?'↑':'↓'}</div>
+        <div class="tx-icon" style="background:${col}18">${isC?'↑':'↓'}</div>
         <div class="tx-info">
-          <div class="tx-name">${esc(item.label)}</div>
-          <div class="tx-meta">${fmtDate(item.date)} · ${esc(item.categorie)}</div>
+          <div class="tx-name">${esc(item.type)}${item.note?' — '+esc(item.note):''}</div>
+          <div class="tx-meta">${fmtDate(item.date)} · ${esc(item.agence)}</div>
         </div>
-        <div class="tx-amount" style="color:${col}">${isRev?'+':'-'}${fmt(item.montant)}</div>`;
+        <div class="tx-amount" style="color:${col}">${isC?'+':'-'}${fmt(item.montant)}</div>`;
       c.appendChild(row);
     });
   }
