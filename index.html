@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+  <!-- PWA Meta -->
+  <title>MonFinance · Gestion Financière</title>
+  <meta name="description" content="Application de gestion financière personnelle. Revenus, dépenses, historique bancaire. Sécurisée par code PIN. Fonctionne hors ligne." />
+  <meta name="keywords" content="finance, budget, dépenses, revenus, FCFA, Sénégal, gestion, banque" />
+  <meta name="author" content="MonFinance" />
+  <meta name="application-name" content="MonFinance" />
+
+  <!-- Theme & Color -->
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="background-color" content="#0f172a" />
+  <meta name="msapplication-TileColor" content="#0f172a" />
+  <meta name="msapplication-TileImage" content="icons/icon-144.png" />
+  <meta name="msapplication-config" content="none" />
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MonFinance" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-192.png" />
+  <link rel="apple-touch-startup-image" href="icons/icon-512.png" />
+
+  <!-- Manifest -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="shortcut icon" href="icons/icon-192.png" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="MonFinance · Gestion Financière" />
+  <meta property="og:description" content="Gérez vos finances personnelles. Revenus, dépenses, banque." />
+  <meta property="og:image" content="icons/icon-512.png" />
+  <meta property="og:type" content="website" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Mono:wght@400;700&display=swap" />
+
+  <style>
+    /* ── Reset & Base ──────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a;
+      --bg2: #1e293b;
+      --bg3: #0d1b2e;
+      --border: rgba(255,255,255,0.08);
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #475569;
+      --text4: #334155;
+      --cyan: #22d3ee;
+      --pink: #f472b6;
+      --purple: #a78bfa;
+      --green: #4ade80;
+      --orange: #fb923c;
+      --yellow: #facc15;
+      --red: #f87171;
+      --font: 'DM Sans', system-ui, sans-serif;
+      --mono: 'Space Mono', monospace;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bot: env(safe-area-inset-bottom, 0px);
+    }
+    html { height: 100%; background: var(--bg); }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100%;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-text-size-adjust: 100%;
+    }
+    button { font-family: var(--font); cursor: pointer; border: none; outline: none; }
+    input, select { font-family: var(--font); outline: none; }
+    select option { background: var(--bg2); color: var(--text); }
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-thumb { background: var(--text4); border-radius: 99px; }
+
+    /* ── Animations ──────────────────────────────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      20%,60%  { transform: translateX(-10px); }
+      40%,80%  { transform: translateX(10px); }
+    }
+    @keyframes pulse {
+      0%,100% { opacity:1; } 50% { opacity:0.5; }
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); } to { transform: rotate(360deg); }
+    }
+    .fadeUp { animation: fadeUp 0.4s ease both; }
+    .fadeUp2 { animation: fadeUp 0.4s ease 0.05s both; }
+    .fadeUp3 { animation: fadeUp 0.4s ease 0.1s both; }
+
+    /* ── Layout ──────────────────────────────────────────────────────────── */
+    #app { display: flex; flex-direction: column; min-height: 100vh; }
+    #pin-screen, #main-screen { width: 100%; }
+
+    /* ── PIN Screen ──────────────────────────────────────────────────────── */
+    #pin-screen {
+      min-height: 100vh;
+      background: linear-gradient(160deg, #0f172a 0%, #1e293b 60%, #0a1628 100%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 40px 20px calc(40px + var(--safe-bot));
+    }
+    .pin-logo { text-align: center; margin-bottom: 48px; }
+    .pin-logo .emoji { font-size: 56px; display: block; margin-bottom: 12px; }
+    .pin-logo .title { font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--cyan); letter-spacing: 4px; }
+    .pin-logo .sub { font-size: 12px; color: var(--text3); margin-top: 6px; }
+    .pin-dots { display: flex; gap: 18px; margin-bottom: 48px; }
+    .pin-dot {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: transparent; border: 2px solid var(--text4);
+      transition: all 0.2s ease;
+    }
+    .pin-dot.filled { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 14px rgba(34,211,238,0.5); }
+    .pin-dot.error { background: var(--red); border-color: var(--red); box-shadow: 0 0 14px rgba(248,113,113,0.5); }
+    .pin-error { color: var(--red); font-size: 13px; font-weight: 600; margin-bottom: 16px; min-height: 20px; text-align: center; }
+    .pin-keypad { display: grid; grid-template-columns: repeat(3, 74px); gap: 14px; }
+    .pin-key {
+      width: 74px; height: 74px; border-radius: 18px;
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      color: var(--text); font-size: 24px; font-family: var(--mono); font-weight: 700;
+      transition: all 0.15s ease; display: flex; align-items: center; justify-content: center;
+    }
+    .pin-key:hover { background: rgba(34,211,238,0.15); }
+    .pin-key:active { transform: scale(0.92); background: rgba(34,211,238,0.28); }
+    .pin-key.del { font-size: 20px; color: var(--text2); }
+    .pin-key.empty { background: transparent; border: none; pointer-events: none; }
+    .pin-hint { margin-top: 44px; font-size: 11px; color: var(--text4); text-align: center; }
+    .pin-hint span { font-family: var(--mono); color: var(--text3); }
+
+    /* ── Header ──────────────────────────────────────────────────────────── */
+    #header {
+      background: rgba(10,18,36,0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: calc(14px + var(--safe-top)) 20px 14px;
+      position: sticky; top: 0; z-index: 100;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .header-brand .title { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--cyan); letter-spacing: 3px; }
+    .header-brand .sub { font-size: 10px; color: var(--text4); margin-top: 2px; }
+    .lock-btn {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      border-radius: 10px; padding: 7px 13px; color: var(--text3); font-size: 11px;
+      transition: all 0.2s;
+    }
+    .lock-btn:hover { background: rgba(255,255,255,0.1); color: var(--text2); }
+
+    /* ── Bottom Nav ──────────────────────────────────────────────────────── */
+    #bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(8,15,30,0.97);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid var(--border);
+      display: flex; gap: 4px;
+      padding: 10px 14px calc(10px + var(--safe-bot));
+      z-index: 100;
+    }
+    .nav-btn {
+      flex: 1; background: transparent; border: 1px solid transparent;
+      border-radius: 14px; padding: 9px 4px;
+      color: var(--text4); transition: all 0.2s;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+    }
+    .nav-btn .nav-icon { font-size: 18px; line-height: 1; }
+    .nav-btn .nav-label { font-size: 10px; font-weight: 500; }
+    .nav-btn.active { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.25); color: var(--cyan); }
+    .nav-btn:active { transform: scale(0.95); }
+
+    /* ── Content ─────────────────────────────────────────────────────────── */
+    #content {
+      padding: 22px 18px calc(100px + var(--safe-bot));
+      max-width: 600px; margin: 0 auto;
+    }
+
+    /* ── Cards & Common ──────────────────────────────────────────────────── */
+    .card { background: rgba(255,255,255,0.03); border-radius: 20px; padding: 20px; margin-bottom: 18px; }
+    .card-title { font-size: 11px; color: var(--text3); font-weight: 700; letter-spacing: 1.5px; margin-bottom: 14px; }
+    .section-title { font-size: 11px; color: var(--text3); font-weight: 700; letter-spacing: 1.5px; margin-bottom: 12px; }
+    .badge {
+      display: inline-block; border-radius: 99px; padding: 3px 10px;
+      font-size: 11px; font-weight: 600;
+    }
+    .btn-primary {
+      padding: 12px 18px; border-radius: 14px; font-weight: 700; font-size: 13px;
+      color: white; transition: all 0.2s; border: none;
+    }
+    .btn-primary:active { transform: scale(0.97); }
+
+    /* Solde card */
+    .solde-card {
+      border-radius: 24px; padding: 26px 24px; margin-bottom: 18px;
+      text-align: center; position: relative; overflow: hidden;
+    }
+    .solde-card::before {
+      content: ''; position: absolute; inset: 0;
+      background: rgba(255,255,255,0.03); pointer-events: none;
+    }
+    .solde-label { font-size: 11px; letter-spacing: 2px; color: rgba(255,255,255,0.65); margin-bottom: 8px; }
+    .solde-amount { font-family: var(--mono); font-size: 30px; font-weight: 700; color: white; }
+
+    /* Stats grid */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+    .stat-card { border-radius: 20px; padding: 18px 16px; }
+    .stat-icon { font-size: 20px; margin-bottom: 6px; }
+    .stat-label { font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+    .stat-value { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+    .stat-count { font-size: 11px; color: var(--text3); margin-top: 4px; }
+
+    /* Bar */
+    .bar-row { margin-bottom: 12px; }
+    .bar-labels { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+    .bar-track { height: 6px; background: rgba(255,255,255,0.05); border-radius: 99px; }
+    .bar-fill { height: 100%; border-radius: 99px; transition: width 1s ease; }
+
+    /* Transaction row */
+    .tx-row {
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(255,255,255,0.03); border-radius: 14px;
+      padding: 12px 14px; margin-bottom: 8px;
+      transition: background 0.2s;
+    }
+    .tx-row:active { background: rgba(255,255,255,0.06); }
+    .tx-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+    .tx-info { margin-left: 12px; flex: 1; min-width: 0; }
+    .tx-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tx-meta { font-size: 11px; color: var(--text3); margin-top: 2px; }
+    .tx-amount { font-family: var(--mono); font-weight: 700; font-size: 14px; flex-shrink: 0; margin-left: 8px; }
+
+    /* Item row (full page) */
+    .item-row {
+      border-radius: 16px; padding: 14px 16px; margin-bottom: 10px;
+      transition: all 0.2s;
+    }
+    .item-row:active { transform: scale(0.99); }
+    .item-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .item-title { font-weight: 600; color: var(--text); font-size: 14px; margin-bottom: 3px; }
+    .item-date { font-size: 11px; color: var(--text3); margin-bottom: 6px; }
+    .item-amount { font-family: var(--mono); font-weight: 700; font-size: 16px; }
+    .item-del { background: none; border: none; color: var(--text4); font-size: 14px; padding: 4px 8px; border-radius: 8px; }
+    .item-del:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+
+    /* Bancaire row */
+    .bank-row { border-radius: 16px; padding: 14px 16px; margin-bottom: 10px; }
+    .bank-type-badge { border-radius: 99px; padding: 2px 8px; font-size: 10px; font-weight: 700; }
+    .bank-meta { font-size: 11px; color: var(--text3); margin-top: 4px; }
+    .bank-note { font-size: 11px; color: var(--text4); font-style: italic; margin-top: 3px; }
+
+    /* Filters */
+    .filter-scroll { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 4px; }
+    .filter-scroll::-webkit-scrollbar { display: none; }
+    .filter-chip {
+      flex-shrink: 0; padding: 6px 12px; border-radius: 99px;
+      font-size: 12px; background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border); color: var(--text3);
+      transition: all 0.2s; white-space: nowrap;
+    }
+    .filter-chip.active { color: var(--cyan); background: rgba(34,211,238,0.12); border-color: rgba(34,211,238,0.3); }
+    .filter-chip:active { transform: scale(0.96); }
+
+    /* Page header */
+    .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+    .page-total-label { font-size: 11px; color: var(--text2); font-weight: 700; letter-spacing: 1.5px; }
+    .page-total-value { font-family: var(--mono); font-size: 24px; font-weight: 700; margin-top: 2px; }
+
+    /* Summary card */
+    .summary-card { background: rgba(124,58,237,0.1); border: 1px solid rgba(124,58,237,0.25); border-radius: 20px; padding: 18px; margin-bottom: 16px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+    .summary-item { text-align: center; }
+    .summary-item .s-label { font-size: 10px; color: var(--text3); margin-bottom: 3px; }
+    .summary-item .s-value { font-family: var(--mono); font-weight: 700; font-size: 12px; }
+
+    /* ── Modal ──────────────────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      display: flex; align-items: flex-end; justify-content: center;
+      z-index: 200; padding-bottom: var(--safe-bot);
+    }
+    .modal-overlay.center { align-items: center; }
+    .modal-box {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 24px 24px 0 0; padding: 28px 24px 32px;
+      width: 100%; max-width: 480px; max-height: 92vh;
+      overflow-y: auto;
+      animation: slideUp 0.3s ease;
+    }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    .modal-box.center { border-radius: 24px; padding: 28px 24px; max-height: 88vh; }
+    .modal-handle { width: 40px; height: 4px; background: var(--text4); border-radius: 99px; margin: 0 auto 24px; }
+    .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .modal-close { background: none; border: none; color: var(--text3); font-size: 22px; line-height: 1; padding: 0 0 0 8px; }
+    .form-label { font-size: 12px; color: var(--text2); font-weight: 600; margin-bottom: 6px; display: block; }
+    .form-input {
+      width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 14px;
+      font-family: var(--font); margin-bottom: 14px; transition: border-color 0.2s;
+    }
+    .form-input:focus { border-color: var(--cyan); }
+    .form-select {
+      width: 100%; background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 12px; padding: 11px 14px; color: var(--text); font-size: 14px;
+      font-family: var(--font); margin-bottom: 14px;
+      -webkit-appearance: none; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 14px center;
+    }
+    .sens-toggle { display: flex; gap: 8px; margin-bottom: 14px; }
+    .sens-btn {
+      flex: 1; padding: 11px; border-radius: 12px; font-weight: 700; font-size: 13px;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: var(--text3);
+      transition: all 0.2s;
+    }
+    .sens-btn.active-credit { background: rgba(34,211,238,0.15); border-color: var(--cyan); color: var(--cyan); }
+    .sens-btn.active-debit { background: rgba(244,114,182,0.15); border-color: var(--pink); color: var(--pink); }
+
+    /* Cat accordion */
+    .cat-selected-preview {
+      border-radius: 10px; padding: 9px 14px; font-size: 13px;
+      font-weight: 600; margin-bottom: 10px;
+    }
+    .cat-group-btn {
+      width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      border-radius: 10px; padding: 9px 12px; color: var(--text2); font-size: 13px;
+      text-align: left; display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 4px; transition: background 0.2s;
+    }
+    .cat-group-btn:hover { background: rgba(255,255,255,0.07); }
+    .cat-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px 8px; }
+    .cat-chip {
+      padding: 5px 12px; border-radius: 99px; font-size: 12px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      color: var(--text3); transition: all 0.15s;
+    }
+    .cat-chip.selected { font-weight: 600; }
+    .cat-chip:active { transform: scale(0.95); }
+
+    /* Install banner */
+    #install-banner {
+      display: none; position: fixed; bottom: 80px; left: 16px; right: 16px;
+      background: linear-gradient(135deg, var(--bg2), #162032);
+      border: 1px solid rgba(34,211,238,0.3); border-radius: 18px;
+      padding: 16px 18px; z-index: 90; animation: fadeUp 0.4s ease;
+    }
+    #install-banner.show { display: flex; align-items: center; gap: 14px; }
+    .install-icon { font-size: 32px; flex-shrink: 0; }
+    .install-text .t1 { font-size: 13px; font-weight: 700; color: var(--text); }
+    .install-text .t2 { font-size: 11px; color: var(--text3); margin-top: 2px; }
+    .install-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .install-btn { padding: 8px 16px; border-radius: 10px; font-size: 12px; font-weight: 700; }
+    .install-yes { background: var(--cyan); color: var(--bg); }
+    .install-no { background: rgba(255,255,255,0.07); border: 1px solid var(--border); color: var(--text3); }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: calc(90px + var(--safe-bot)); left: 50%; transform: translateX(-50%) translateY(20px);
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px 18px; font-size: 13px; color: var(--text); z-index: 300;
+      opacity: 0; transition: all 0.3s ease; pointer-events: none; white-space: nowrap;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* Offline indicator */
+    #offline-bar {
+      display: none; background: rgba(251,146,60,0.2); border-bottom: 1px solid rgba(251,146,60,0.3);
+      padding: 6px 20px; font-size: 12px; color: var(--orange); text-align: center; font-weight: 500;
+    }
+    #offline-bar.show { display: block; }
+
+    /* Update banner */
+    #update-banner {
+      display: none; background: rgba(34,211,238,0.1); border-bottom: 1px solid rgba(34,211,238,0.2);
+      padding: 8px 20px; font-size: 12px; color: var(--cyan); text-align: center;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    #update-banner.show { display: flex; }
+    #update-banner button { background: var(--cyan); color: var(--bg); border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 700; border: none; }
+
+    /* Responsive */
+    @media (min-width: 600px) {
+      .modal-box { border-radius: 24px; max-width: 440px; }
+      .modal-overlay { align-items: center; }
+      .modal-handle { display: none; }
+    }
+  </style>
+</head>
+
+<body>
+<div id="app">
+  <!-- Offline bar -->
+  <div id="offline-bar">📡 Mode hors ligne — données locales disponibles</div>
+
+  <!-- Update banner -->
+  <div id="update-banner">
+    🔄 Nouvelle version disponible
+    <button onclick="applyUpdate()">Mettre à jour</button>
+  </div>
+
+  <!-- PIN Screen -->
+  <div id="pin-screen">
+    <div class="pin-logo fadeUp">
+      <span class="emoji">💰</span>
+      <div class="title">MONFINANCE</div>
+      <div class="sub">Podor · Dakar · Kaolack</div>
+    </div>
+    <div class="pin-dots fadeUp2" id="pin-dots">
+      <div class="pin-dot" id="dot-0"></div>
+      <div class="pin-dot" id="dot-1"></div>
+      <div class="pin-dot" id="dot-2"></div>
+      <div class="pin-dot" id="dot-3"></div>
+    </div>
+    <div class="pin-error" id="pin-error"></div>
+    <div class="pin-keypad fadeUp3">
+      <button class="pin-key" onclick="pinKey('1')">1</button>
+      <button class="pin-key" onclick="pinKey('2')">2</button>
+      <button class="pin-key" onclick="pinKey('3')">3</button>
+      <button class="pin-key" onclick="pinKey('4')">4</button>
+      <button class="pin-key" onclick="pinKey('5')">5</button>
+      <button class="pin-key" onclick="pinKey('6')">6</button>
+      <button class="pin-key" onclick="pinKey('7')">7</button>
+      <button class="pin-key" onclick="pinKey('8')">8</button>
+      <button class="pin-key" onclick="pinKey('9')">9</button>
+      <button class="pin-key empty" disabled></button>
+      <button class="pin-key" onclick="pinKey('0')">0</button>
+      <button class="pin-key del" onclick="pinDel()">⌫</button>
+    </div>
+    <div class="pin-hint">Code démo : <span>1234</span></div>
+  </div>
+
+  <!-- Main App -->
+  <div id="main-screen" style="display:none">
+    <div id="header">
+      <div class="header-brand">
+        <div class="title">MONFINANCE</div>
+        <div class="sub" id="header-sub">Mai 2026</div>
+      </div>
+      <button class="lock-btn" onclick="lock()">🔒 Verrouiller</button>
+    </div>
+
+    <div id="content"></div>
+
+    <nav id="bottom-nav">
+      <button class="nav-btn active" id="nav-dashboard" onclick="switchTab('dashboard')">
+        <span class="nav-icon">◈</span>
+        <span class="nav-label">Tableau</span>
+      </button>
+      <button class="nav-btn" id="nav-revenus" onclick="switchTab('revenus')">
+        <span class="nav-icon">↑</span>
+        <span class="nav-label">Revenus</span>
+      </button>
+      <button class="nav-btn" id="nav-depenses" onclick="switchTab('depenses')">
+        <span class="nav-icon">↓</span>
+        <span class="nav-label">Dépenses</span>
+      </button>
+      <button class="nav-btn" id="nav-bancaire" onclick="switchTab('bancaire')">
+        <span class="nav-icon">🏦</span>
+        <span class="nav-label">Banque</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Install Banner -->
+  <div id="install-banner">
+    <div class="install-icon">📲</div>
+    <div style="flex:1">
+      <div class="install-text">
+        <div class="t1">Installer MonFinance</div>
+        <div class="t2">Accès rapide, fonctionne hors ligne</div>
+      </div>
+      <div class="install-actions">
+        <button class="install-btn install-yes" onclick="installApp()">Installer</button>
+        <button class="install-btn install-no" onclick="dismissInstall()">Plus tard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast"></div>
+
+  <!-- Modal container -->
+  <div id="modal-container"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// DATA & CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════════
+const CORRECT_PIN = '1234';
+
+const CATS_REV = ['Emploi', 'Freelance', 'Immobilier', 'Remboursement', 'Autre'];
+
+const CATS_DEP_GROUPED = {
+  '🏠 Maison DKR': ['Maison nn','Maison loan nn','Maison dq','Maison café','Maison huile','Maison riz','Maison gaz','Maison lait','Maison oignon','Maison divers'],
+  '🏠 Maison KLK': ['Maison KLK'],
+  '🏫 École': ['École Blossom','École Sacré Cœur','École Blossom transport','École AWET'],
+  '👩‍👧 Services': ['Service bonne','Service cimetière','Service mouton','Service péage Eiffage','Service péage KLK','Service divers'],
+  '🤝 Aide famille': ['Aide mak','Aide mère Ndeye','Aide divers'],
+  '📋 Factures': ['Facture tél','Facture internet','Facture SENEAU KLK','Facture SENEAU DKR','Facture Woyofal DKR','Facture Woyofal KLK','Facture divers'],
+  '🏘️ Loyers': ['Loyer VDN','Loyer KLK'],
+};
+const CATS_DEP_FLAT = Object.values(CATS_DEP_GROUPED).flat();
+
+const TYPES_BANCAIRE = ['Salaire','Agios','Assurance','Épargne enfants','Échéance prêt','Retrait app web','Retrait GAB','Virement'];
+const AGENCES = ['CBAO Dakar','CBAO Kaolack','BIS Dakar','BIS Kaolack','Ecobank Dakar','Ecobank Kaolack','UBA Dakar','Wave','Orange Money','Autre'];
+
+const GRP_COLORS = {
+  '🏠 Maison DKR':'#fb923c','🏠 Maison KLK':'#f97316',
+  '🏫 École':'#a78bfa','👩‍👧 Services':'#34d399',
+  '🤝 Aide famille':'#f472b6','📋 Factures':'#facc15',
+  '🏘️ Loyers':'#22d3ee'
+};
+const REV_COLORS = {Emploi:'#22d3ee',Freelance:'#a78bfa',Immobilier:'#34d399',Remboursement:'#4ade80',Autre:'#94a3b8'};
+const BANK_COLORS = {Salaire:'#22d3ee',Agios:'#f87171',Assurance:'#fb923c','Épargne enfants':'#a78bfa','Échéance prêt':'#f472b6','Retrait app web':'#facc15','Retrait GAB':'#fbbf24',Virement:'#34d399'};
+
+function getCatColor(cat) {
+  for (const [grp, cats] of Object.entries(CATS_DEP_GROUPED)) {
+    if (cats.includes(cat)) return GRP_COLORS[grp];
+  }
+  return '#64748b';
+}
+function getGrpForCat(cat) {
+  for (const [grp, cats] of Object.entries(CATS_DEP_GROUPED)) {
+    if (cats.includes(cat)) return grp;
+  }
+  return 'Autre';
+}
+
+// Default data
+const DEFAULT_DATA = {
+  revenus: [
+    {id:1,label:'Salaire mai',montant:650000,date:'2026-05-01',categorie:'Emploi'},
+    {id:2,label:'Loyer VDN perçu',montant:120000,date:'2026-05-05',categorie:'Immobilier'},
+  ],
+  depenses: [
+    {id:1,label:'Courses marché',montant:35000,date:'2026-05-02',categorie:'Maison riz'},
+    {id:2,label:'Frais scolarité Blossom',montant:95000,date:'2026-05-03',categorie:'École Blossom'},
+    {id:3,label:'Salaire bonne',montant:40000,date:'2026-05-04',categorie:'Service bonne'},
+    {id:4,label:'Loyer appartement VDN',montant:180000,date:'2026-05-05',categorie:'Loyer VDN'},
+    {id:5,label:'Woyofal recharge DKR',montant:15000,date:'2026-05-10',categorie:'Facture Woyofal DKR'},
+    {id:6,label:'Aide maman',montant:50000,date:'2026-05-12',categorie:'Aide mère Ndeye'},
+  ],
+  bancaire: [
+    {id:1,type:'Salaire',montant:650000,date:'2026-05-01',sens:'credit',agence:'CBAO Dakar',note:'Virement employeur'},
+    {id:2,type:'Retrait GAB',montant:100000,date:'2026-05-03',sens:'debit',agence:'CBAO Kaolack',note:''},
+    {id:3,type:'Agios',montant:4500,date:'2026-05-10',sens:'debit',agence:'CBAO Dakar',note:'Commission compte'},
+    {id:4,type:'Assurance',montant:22000,date:'2026-05-15',sens:'debit',agence:'CBAO Dakar',note:'Prélèvement auto'},
+    {id:5,type:'Épargne enfants',montant:50000,date:'2026-05-15',sens:'debit',agence:'BIS Dakar',note:''},
+    {id:6,type:'Échéance prêt',montant:85000,date:'2026-05-20',sens:'debit',agence:'CBAO Dakar',note:'Crédit immobilier'},
+  ]
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+let pinDigits = [];
+let currentTab = 'dashboard';
+let openCatGroup = null;
+let deferredPrompt = null;
+let waitingWorker = null;
+let activeFilterDep = 'Tous';
+let activeFilterBank = 'Tous';
+
+function loadData() {
+  try {
+    const saved = localStorage.getItem('mf_data');
+    return saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULT_DATA));
+  } catch { return JSON.parse(JSON.stringify(DEFAULT_DATA)); }
+}
+function saveData() {
+  localStorage.setItem('mf_data', JSON.stringify(appData));
+}
+let appData = loadData();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+const fmt = n => new Intl.NumberFormat('fr-SN',{style:'currency',currency:'XOF',maximumFractionDigits:0}).format(n);
+const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'});
+const uid = () => Date.now() + Math.random().toString(36).slice(2);
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PIN
+// ═══════════════════════════════════════════════════════════════════════════════
+function pinKey(d) {
+  if (pinDigits.length >= 4) return;
+  pinDigits.push(d);
+  updateDots();
+  if (pinDigits.length === 4) {
+    setTimeout(() => {
+      if (pinDigits.join('') === CORRECT_PIN) {
+        unlock();
+      } else {
+        document.getElementById('pin-error').textContent = '❌ Code incorrect — réessayez';
+        document.getElementById('pin-dots').style.animation = 'shake 0.6s ease';
+        document.querySelectorAll('.pin-dot').forEach(d => d.classList.add('error'));
+        setTimeout(() => {
+          pinDigits = [];
+          updateDots(true);
+          document.getElementById('pin-dots').style.animation = '';
+          document.getElementById('pin-error').textContent = '';
+        }, 900);
+      }
+    }, 200);
+  }
+}
+function pinDel() {
+  pinDigits.pop();
+  updateDots();
+}
+function updateDots(reset=false) {
+  for (let i=0;i<4;i++) {
+    const dot = document.getElementById('dot-'+i);
+    dot.className = 'pin-dot';
+    if (!reset && i < pinDigits.length) dot.classList.add('filled');
+  }
+}
+function unlock() {
+  document.getElementById('pin-screen').style.display = 'none';
+  document.getElementById('main-screen').style.display = 'block';
+  // Update header date
+  const now = new Date();
+  document.getElementById('header-sub').textContent =
+    now.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+  // Handle URL params for shortcuts
+  const params = new URLSearchParams(location.search);
+  if (params.get('action') === 'depense') { switchTab('depenses'); setTimeout(() => openModal('depense'), 300); }
+  else if (params.get('action') === 'revenu') { switchTab('revenus'); setTimeout(() => openModal('revenu'), 300); }
+  else switchTab('dashboard');
+}
+function lock() {
+  pinDigits = [];
+  updateDots(true);
+  document.getElementById('pin-error').textContent = '';
+  document.getElementById('main-screen').style.display = 'none';
+  document.getElementById('pin-screen').style.display = 'flex';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB
+// ═══════════════════════════════════════════════════════════════════════════════
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('nav-'+tab).classList.add('active');
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════════════════════════
+function render() {
+  const c = document.getElementById('content');
+  c.innerHTML = '';
+  c.className = '';
+  if (currentTab === 'dashboard') renderDashboard(c);
+  else if (currentTab === 'revenus') renderRevenus(c);
+  else if (currentTab === 'depenses') renderDepenses(c);
+  else if (currentTab === 'bancaire') renderBancaire(c);
+  c.classList.add('fadeUp');
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function renderDashboard(c) {
+  const totalR = appData.revenus.reduce((s,x)=>s+x.montant,0);
+  const totalD = appData.depenses.reduce((s,x)=>s+x.montant,0);
+  const solde = totalR - totalD;
+  const pos = solde >= 0;
+
+  // Solde card
+  const soldeCard = el('div',{className:'solde-card',style:`background:linear-gradient(135deg,${pos?'#0891b2':'#be185d'},${pos?'#164e63':'#831843'});box-shadow:0 20px 50px ${pos?'rgba(8,145,178,.3)':'rgba(190,24,93,.3)'}`});
+  soldeCard.innerHTML = `<div class="solde-label">SOLDE NET DU MOIS</div><div class="solde-amount">${pos?'+':''}${fmt(solde)}</div>`;
+  c.appendChild(soldeCard);
+
+  // Stats
+  const grid = el('div',{className:'stats-grid'});
+  [{l:'Revenus',v:totalR,col:'#22d3ee',ic:'↑',n:appData.revenus.length},
+   {l:'Dépenses',v:totalD,col:'#f472b6',ic:'↓',n:appData.depenses.length}].forEach(({l,v,col,ic,n}) => {
+    const card = el('div',{className:'stat-card',style:`background:${col}11;border:1px solid ${col}33`});
+    card.innerHTML = `<div class="stat-icon">${ic}</div><div class="stat-label">${l}</div><div class="stat-value" style="color:${col}">${fmt(v)}</div><div class="stat-count">${n} ligne${n>1?'s':''}</div>`;
+    grid.appendChild(card);
+  });
+  c.appendChild(grid);
+
+  // Barres par groupe
+  const byGrp = {};
+  appData.depenses.forEach(d => {
+    const g = getGrpForCat(d.categorie);
+    byGrp[g] = (byGrp[g]||0) + d.montant;
+  });
+  const maxG = Math.max(...Object.values(byGrp),1);
+
+  if (Object.keys(byGrp).length > 0) {
+    const bcard = el('div',{className:'card'});
+    bcard.innerHTML = '<div class="card-title">DÉPENSES PAR CATÉGORIE</div>';
+    Object.entries(byGrp).sort((a,b)=>b[1]-a[1]).forEach(([grp,val]) => {
+      const col = GRP_COLORS[grp]||'#94a3b8';
+      const row = el('div',{className:'bar-row'});
+      row.innerHTML = `<div class="bar-labels"><span style="color:var(--text2)">${grp}</span><span style="font-family:var(--mono);color:${col};font-weight:700">${fmt(val)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(val/maxG*100).toFixed(1)}%;background:${col};box-shadow:0 0 8px ${col}66"></div></div>`;
+      bcard.appendChild(row);
+    });
+    c.appendChild(bcard);
+  }
+
+  // Recent transactions
+  const recent = [
+    ...appData.revenus.map(r=>({...r,_t:'revenu'})),
+    ...appData.depenses.map(d=>({...d,_t:'depense'})),
+  ].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,6);
+
+  if (recent.length > 0) {
+    const rt = el('div',{className:'section-title'});
+    rt.textContent = 'DERNIÈRES TRANSACTIONS';
+    c.appendChild(rt);
+    recent.forEach(item => {
+      const isRev = item._t === 'revenu';
+      const col = isRev ? '#22d3ee' : '#f472b6';
+      const row = el('div',{className:'tx-row'});
+      row.innerHTML = `
+        <div class="tx-icon" style="background:${col}18">${isRev?'↑':'↓'}</div>
+        <div class="tx-info">
+          <div class="tx-name">${esc(item.label)}</div>
+          <div class="tx-meta">${fmtDate(item.date)} · ${esc(item.categorie)}</div>
+        </div>
+        <div class="tx-amount" style="color:${col}">${isRev?'+':'-'}${fmt(item.montant)}</div>`;
+      c.appendChild(row);
+    });
+  }
+}
+
+// ─── REVENUS ──────────────────────────────────────────────────────────────────
+function renderRevenus(c) {
+  const total = appData.revenus.reduce((s,x)=>s+x.montant,0);
+  const header = el('div',{className:'page-header'});
+  header.innerHTML = `<div><div class="page-total-label">TOTAL REVENUS</div><div class="page-total-value" style="color:var(--cyan)">${fmt(total)}</div></div>`;
+  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#22d3ee,#0891b2)'});
+  btn.textContent = '+ Ajouter';
+  btn.onclick = () => openModal('revenu');
+  header.appendChild(btn);
+  c.appendChild(header);
+
+  [...appData.revenus].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(item => {
+    const col = REV_COLORS[item.categorie]||'#94a3b8';
+    const row = el('div',{className:'item-row',style:`background:rgba(34,211,238,.04);border:1px solid rgba(34,211,238,.1)`});
+    row.innerHTML = `
+      <div class="item-header">
+        <div style="flex:1;min-width:0">
+          <div class="item-title">${esc(item.label)}</div>
+          <div class="item-date">${fmtDate(item.date)}</div>
+          <span class="badge" style="background:${col}22;color:${col}">${esc(item.categorie)}</span>
+        </div>
+        <div style="text-align:right;margin-left:10px">
+          <div class="item-amount" style="color:var(--cyan)">+${fmt(item.montant)}</div>
+          <button class="item-del" onclick="deleteItem('revenus',${item.id})">🗑</button>
+        </div>
+      </div>`;
+    c.appendChild(row);
+  });
+  if (appData.revenus.length === 0) c.appendChild(emptyState('Aucun revenu enregistré'));
+}
+
+// ─── DÉPENSES ─────────────────────────────────────────────────────────────────
+function renderDepenses(c) {
+  const all = appData.depenses;
+  const total = all.reduce((s,x)=>s+x.montant,0);
+
+  const header = el('div',{className:'page-header'});
+  header.innerHTML = `<div><div class="page-total-label">TOTAL DÉPENSES</div><div class="page-total-value" style="color:var(--pink)">${fmt(total)}</div></div>`;
+  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#f472b6,#be185d)'});
+  btn.textContent = '+ Ajouter';
+  btn.onclick = () => openModal('depense');
+  header.appendChild(btn);
+  c.appendChild(header);
+
+  // Filter chips
+  const scroll = el('div',{className:'filter-scroll'});
+  ['Tous',...Object.keys(CATS_DEP_GROUPED)].forEach(g => {
+    const chip = el('button',{className:'filter-chip'+(activeFilterDep===g?' active':'')});
+    chip.textContent = g === 'Tous' ? 'Tous' : g;
+    chip.onclick = () => { activeFilterDep = g; render(); };
+    scroll.appendChild(chip);
+  });
+  c.appendChild(scroll);
+
+  const filtered = activeFilterDep === 'Tous' ? all
+    : all.filter(d => (CATS_DEP_GROUPED[activeFilterDep]||[]).includes(d.categorie));
+  const filteredTotal = filtered.reduce((s,x)=>s+x.montant,0);
+
+  if (activeFilterDep !== 'Tous') {
+    const st = el('div',{style:'font-size:12px;color:var(--text3);margin-bottom:10px'});
+    st.innerHTML = `Sous-total : <span style="color:${GRP_COLORS[activeFilterDep]||'#f472b6'};font-family:var(--mono);font-weight:700">${fmt(filteredTotal)}</span>`;
+    c.appendChild(st);
+  }
+
+  [...filtered].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(item => {
+    const col = getCatColor(item.categorie);
+    const row = el('div',{className:'item-row',style:`background:rgba(244,114,182,.04);border:1px solid rgba(244,114,182,.1)`});
+    row.innerHTML = `
+      <div class="item-header">
+        <div style="flex:1;min-width:0">
+          <div class="item-title">${esc(item.label)}</div>
+          <div class="item-date">${fmtDate(item.date)}</div>
+          <span class="badge" style="background:${col}22;color:${col}">${esc(item.categorie)}</span>
+        </div>
+        <div style="text-align:right;margin-left:10px">
+          <div class="item-amount" style="color:var(--pink)">-${fmt(item.montant)}</div>
+          <button class="item-del" onclick="deleteItem('depenses',${item.id})">🗑</button>
+        </div>
+      </div>`;
+    c.appendChild(row);
+  });
+  if (filtered.length === 0) c.appendChild(emptyState('Aucune dépense dans cette catégorie'));
+}
+
+// ─── BANCAIRE ─────────────────────────────────────────────────────────────────
+function renderBancaire(c) {
+  const credits = appData.bancaire.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const debits = appData.bancaire.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const solde = credits - debits;
+
+  // Summary
+  const sum = el('div',{className:'summary-card'});
+  sum.innerHTML = `
+    <div class="card-title">RÉSUMÉ COMPTE BANCAIRE</div>
+    <div class="summary-grid">
+      <div class="summary-item"><div class="s-label">Crédits</div><div class="s-value" style="color:var(--cyan)">${fmt(credits)}</div></div>
+      <div class="summary-item"><div class="s-label">Débits</div><div class="s-value" style="color:var(--pink)">${fmt(debits)}</div></div>
+      <div class="summary-item"><div class="s-label">Net</div><div class="s-value" style="color:${solde>=0?'var(--green)':'var(--red)'}">${fmt(Math.abs(solde))}</div></div>
+    </div>`;
+  c.appendChild(sum);
+
+  const topRow = el('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'});
+  topRow.innerHTML = `<div class="section-title" style="margin:0">${appData.bancaire.length} OPÉRATION${appData.bancaire.length>1?'S':''}</div>`;
+  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5)'});
+  btn.textContent = '+ Ajouter';
+  btn.onclick = () => openModal('bancaire');
+  topRow.appendChild(btn);
+  c.appendChild(topRow);
+
+  // Filter
+  const scroll = el('div',{className:'filter-scroll'});
+  ['Tous',...TYPES_BANCAIRE].forEach(t => {
+    const chip = el('button',{className:'filter-chip'+(activeFilterBank===t?' active':'')});
+    chip.textContent = t;
+    chip.onclick = () => { activeFilterBank = t; render(); };
+    scroll.appendChild(chip);
+  });
+  c.appendChild(scroll);
+
+  const filtered = activeFilterBank === 'Tous' ? appData.bancaire : appData.bancaire.filter(x=>x.type===activeFilterBank);
+
+  [...filtered].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(item => {
+    const isC = item.sens === 'credit';
+    const col = BANK_COLORS[item.type]||'#94a3b8';
+    const row = el('div',{className:'bank-row',style:`background:${col}0d;border:1px solid ${col}22`});
+    row.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:15px">${isC?'⬆️':'⬇️'}</span>
+            <span style="font-weight:700;color:var(--text);font-size:14px">${esc(item.type)}</span>
+            <span class="bank-type-badge" style="background:${col}22;color:${col}">${isC?'CRÉDIT':'DÉBIT'}</span>
+          </div>
+          <div class="bank-meta">📅 ${fmtDate(item.date)} &nbsp;·&nbsp; 🏦 ${esc(item.agence)}</div>
+          ${item.note?`<div class="bank-note">${esc(item.note)}</div>`:''}
+        </div>
+        <div style="text-align:right;margin-left:10px">
+          <div class="item-amount" style="color:${isC?'var(--cyan)':'var(--pink)'}">${isC?'+':'-'}${fmt(item.montant)}</div>
+          <button class="item-del" onclick="deleteItem('bancaire',${item.id})">🗑</button>
+        </div>
+      </div>`;
+    c.appendChild(row);
+  });
+  if (filtered.length === 0) c.appendChild(emptyState('Aucune opération'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DATA OPERATIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+function deleteItem(section, id) {
+  appData[section] = appData[section].filter(x => x.id != id);
+  saveData();
+  render();
+  showToast('🗑 Supprimé');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODALS
+// ═══════════════════════════════════════════════════════════════════════════════
+function openModal(type) {
+  openCatGroup = null;
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div',{className:'modal-overlay'});
+  overlay.onclick = e => { if(e.target===overlay) closeModal(); };
+
+  if (type === 'revenu') mc.appendChild(buildModalRevenu(overlay));
+  else if (type === 'depense') mc.appendChild(buildModalDepense(overlay));
+  else if (type === 'bancaire') mc.appendChild(buildModalBancaire(overlay));
+}
+function closeModal() {
+  document.getElementById('modal-container').innerHTML = '';
+}
+
+function buildModalRevenu(overlay) {
+  const box = el('div',{className:'modal-box'});
+  box.innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-title"><span style="color:var(--cyan)">➕ Nouveau revenu</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <label class="form-label">Libellé</label>
+    <input class="form-input" id="r-label" type="text" placeholder="Ex: Salaire mai" />
+    <label class="form-label">Montant (FCFA)</label>
+    <input class="form-input" id="r-montant" type="number" placeholder="Ex: 250000" />
+    <label class="form-label">Date</label>
+    <input class="form-input" id="r-date" type="date" value="${today()}" />
+    <label class="form-label">Catégorie</label>
+    <select class="form-select" id="r-cat">${CATS_REV.map(c=>`<option>${c}</option>`).join('')}</select>
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#22d3ee,#0891b2)" onclick="submitRevenu()">Enregistrer</button>`;
+  overlay.appendChild(box);
+  return overlay;
+}
+
+function submitRevenu() {
+  const label = document.getElementById('r-label').value.trim();
+  const montant = parseFloat(document.getElementById('r-montant').value);
+  const date = document.getElementById('r-date').value;
+  const categorie = document.getElementById('r-cat').value;
+  if (!label || !montant || isNaN(montant)) { showToast('⚠️ Remplissez tous les champs'); return; }
+  appData.revenus.unshift({id:uid(),label,montant,date,categorie});
+  saveData(); closeModal(); render(); showToast('✅ Revenu enregistré');
+}
+
+function buildModalDepense(overlay) {
+  const box = el('div',{className:'modal-box'});
+  box.innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-title"><span style="color:var(--pink)">➖ Nouvelle dépense</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <label class="form-label">Libellé</label>
+    <input class="form-input" id="d-label" type="text" placeholder="Ex: Courses marché" />
+    <label class="form-label">Montant (FCFA)</label>
+    <input class="form-input" id="d-montant" type="number" placeholder="Ex: 35000" />
+    <label class="form-label">Date</label>
+    <input class="form-input" id="d-date" type="date" value="${today()}" />
+    <label class="form-label">Catégorie</label>
+    <div id="cat-picker"></div>
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#f472b6,#be185d);margin-top:4px" onclick="submitDepense()">Enregistrer</button>`;
+  overlay.appendChild(box);
+  // Build cat picker after DOM insertion
+  setTimeout(() => buildCatPicker(CATS_DEP_FLAT[0]), 10);
+  return overlay;
+}
+
+let selectedCat = CATS_DEP_FLAT[0];
+function buildCatPicker(current) {
+  selectedCat = current;
+  const picker = document.getElementById('cat-picker');
+  if (!picker) return;
+  const col = getCatColor(current);
+  let html = `<div class="cat-selected-preview" style="background:${col}22;color:${col};border:1px solid ${col}44">✓ ${esc(current)}</div>`;
+  Object.entries(CATS_DEP_GROUPED).forEach(([grp, cats]) => {
+    const isOpen = openCatGroup === grp;
+    html += `<button class="cat-group-btn" onclick="toggleCatGroup('${grp}')"><span>${grp}</span><span>${isOpen?'▲':'▼'}</span></button>`;
+    if (isOpen) {
+      html += `<div class="cat-chips">`;
+      cats.forEach(c => {
+        const cc = getCatColor(c);
+        const isSel = c === current;
+        html += `<button class="cat-chip${isSel?' selected':''}" style="${isSel?`background:${cc}22;color:${cc};border-color:${cc}`:'color:var(--text3)'}" onclick="selectCat('${c}')">${c}</button>`;
+      });
+      html += `</div>`;
+    }
+  });
+  picker.innerHTML = html;
+}
+function toggleCatGroup(grp) {
+  openCatGroup = openCatGroup === grp ? null : grp;
+  buildCatPicker(selectedCat);
+}
+function selectCat(cat) {
+  selectedCat = cat;
+  openCatGroup = null;
+  buildCatPicker(cat);
+}
+
+function submitDepense() {
+  const label = document.getElementById('d-label').value.trim();
+  const montant = parseFloat(document.getElementById('d-montant').value);
+  const date = document.getElementById('d-date').value;
+  if (!label || !montant || isNaN(montant)) { showToast('⚠️ Remplissez tous les champs'); return; }
+  appData.depenses.unshift({id:uid(),label,montant,date,categorie:selectedCat});
+  saveData(); closeModal(); render(); showToast('✅ Dépense enregistrée');
+}
+
+function buildModalBancaire(overlay) {
+  const box = el('div',{className:'modal-box'});
+  box.innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-title"><span style="color:var(--purple)">🏦 Opération bancaire</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <label class="form-label">Mouvement</label>
+    <div class="sens-toggle">
+      <button class="sens-btn active-credit" id="sens-credit" onclick="setSens('credit')">Crédit ↑</button>
+      <button class="sens-btn" id="sens-debit" onclick="setSens('debit')">Débit ↓</button>
+    </div>
+    <label class="form-label">Type d'opération</label>
+    <select class="form-select" id="b-type">${TYPES_BANCAIRE.map(t=>`<option>${t}</option>`).join('')}</select>
+    <label class="form-label">Montant (FCFA)</label>
+    <input class="form-input" id="b-montant" type="number" placeholder="Ex: 650000" />
+    <label class="form-label">Date</label>
+    <input class="form-input" id="b-date" type="date" value="${today()}" />
+    <label class="form-label">Agence / Canal</label>
+    <select class="form-select" id="b-agence">${AGENCES.map(a=>`<option>${a}</option>`).join('')}</select>
+    <label class="form-label">Note (optionnel)</label>
+    <input class="form-input" id="b-note" type="text" placeholder="Ex: Prélèvement automatique" />
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5)" onclick="submitBancaire()">Enregistrer</button>`;
+  overlay.appendChild(box);
+  return overlay;
+}
+
+let currentSens = 'credit';
+function setSens(s) {
+  currentSens = s;
+  const cb = document.getElementById('sens-credit');
+  const db = document.getElementById('sens-debit');
+  cb.className = 'sens-btn' + (s==='credit'?' active-credit':'');
+  db.className = 'sens-btn' + (s==='debit'?' active-debit':'');
+}
+
+function submitBancaire() {
+  const montant = parseFloat(document.getElementById('b-montant').value);
+  if (!montant || isNaN(montant)) { showToast('⚠️ Montant requis'); return; }
+  appData.bancaire.unshift({
+    id: uid(),
+    type: document.getElementById('b-type').value,
+    montant,
+    date: document.getElementById('b-date').value,
+    sens: currentSens,
+    agence: document.getElementById('b-agence').value,
+    note: document.getElementById('b-note').value.trim(),
+  });
+  saveData(); closeModal(); render(); showToast('✅ Opération enregistrée');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════════════════════════
+function el(tag, props={}) {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  if (props.style && typeof props.style === 'string') e.setAttribute('style', props.style);
+  return e;
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function today() {
+  return new Date().toISOString().split('T')[0];
+}
+function emptyState(msg) {
+  const d = el('div',{style:'text-align:center;padding:48px 20px;color:var(--text3);font-size:14px'});
+  d.innerHTML = `<div style="font-size:36px;margin-bottom:12px">📭</div>${esc(msg)}`;
+  return d;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PWA — Service Worker Registration
+// ═══════════════════════════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js', { scope: './' })
+      .then(reg => {
+        console.log('[App] SW registered:', reg.scope);
+
+        // Check for update
+        reg.addEventListener('updatefound', () => {
+          waitingWorker = reg.installing;
+          waitingWorker.addEventListener('statechange', () => {
+            if (waitingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              document.getElementById('update-banner').classList.add('show');
+            }
+          });
+        });
+
+        // Already waiting update
+        if (reg.waiting) {
+          waitingWorker = reg.waiting;
+          document.getElementById('update-banner').classList.add('show');
+        }
+      })
+      .catch(err => console.warn('[App] SW registration failed:', err));
+
+    // Reload on SW controller change
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
+    });
+  });
+}
+
+function applyUpdate() {
+  if (waitingWorker) {
+    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+  }
+  document.getElementById('update-banner').classList.remove('show');
+}
+
+// ── PWA Install Prompt ────────────────────────────────────────────────────────
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  if (!localStorage.getItem('mf_install_dismissed')) {
+    setTimeout(() => document.getElementById('install-banner').classList.add('show'), 3000);
+  }
+});
+
+function installApp() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(choice => {
+    if (choice.outcome === 'accepted') showToast('🎉 Installation réussie !');
+    deferredPrompt = null;
+    document.getElementById('install-banner').classList.remove('show');
+  });
+}
+function dismissInstall() {
+  localStorage.setItem('mf_install_dismissed', '1');
+  document.getElementById('install-banner').classList.remove('show');
+}
+
+window.addEventListener('appinstalled', () => {
+  document.getElementById('install-banner').classList.remove('show');
+  showToast('🎉 MonFinance installé !');
+});
+
+// ── Offline detection ─────────────────────────────────────────────────────────
+function updateOnlineStatus() {
+  const bar = document.getElementById('offline-bar');
+  if (!navigator.onLine) bar.classList.add('show');
+  else bar.classList.remove('show');
+}
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+updateOnlineStatus();
+
+// ── Keyboard PIN support ──────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (document.getElementById('pin-screen').style.display !== 'none') {
+    if (e.key >= '0' && e.key <= '9') pinKey(e.key);
+    if (e.key === 'Backspace') pinDel();
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+console.log('MonFinance v1.0.0 — PWA Ready');
+</script>
+</body>
+</html>
