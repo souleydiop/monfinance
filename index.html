@@ -927,6 +927,8 @@ function renderBancaire(c) {
 // DATA OPERATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 function deleteItem(section, id) {
+  // If deleting a bancaire item, also remove synced revenus/depenses
+  if (section === 'bancaire') removeSyncedItem(id);
   appData[section] = appData[section].filter(x => x.id != id);
   saveData();
   renderCurrent();
@@ -1071,7 +1073,9 @@ function confirmImport() {
         const cat = CATS_DEP_FLAT.find(c=>c.toLowerCase()===(categorie||'').toLowerCase()) || categorie || 'Maison divers';
         appData.depenses.unshift({ id:uid(), label:label||'Import', montant, date:date||today(), categorie:cat });
       } else {
-        appData.bancaire.unshift({ id:uid(), type:categorie||'Virement', montant, date:date||today(), sens:'credit', agence:'Import', note:label||'' });
+        const bItem = { id:uid(), type:categorie||'Virement', montant, date:date||today(), sens: montant>0?'credit':'debit', agence:'Import', note:label||'' };
+        appData.bancaire.unshift(bItem);
+        syncBanqueToTableau(bItem);
       }
       count++;
     });
@@ -1224,10 +1228,61 @@ function setSens(s) {
   db.className = 'sens-btn' + (s==='debit'?' active-debit':'');
 }
 
+
+// ─── SYNC BANQUE → REVENUS / DÉPENSES ────────────────────────────────────────
+// Types crédit → Revenus
+const BANK_TO_REV = {
+  'Salaire':   'Emploi',
+  'Virement':  'Autre',
+};
+// Types débit → Dépenses (categorie depense)
+const BANK_TO_DEP = {
+  'Agios':          'Facture divers',
+  'Assurance':      'Facture divers',
+  'Épargne enfants':'Facture divers',
+  'Échéance prêt':  'Facture divers',
+  'Retrait app web':'Facture divers',
+  'Retrait GAB':    'Facture divers',
+};
+
+function syncBanqueToTableau(item) {
+  // Crédit → ajoute dans Revenus
+  if (item.sens === 'credit') {
+    const categorie = BANK_TO_REV[item.type] || 'Autre';
+    // Evite les doublons (découvert initial)
+    if (item.agence === 'Solde initial') return;
+    appData.revenus.unshift({
+      id: 'b_' + item.id,
+      label: item.type + (item.note ? ' — ' + item.note : ''),
+      montant: item.montant,
+      date: item.date,
+      categorie: categorie,
+    });
+  }
+  // Débit → ajoute dans Dépenses
+  if (item.sens === 'debit') {
+    if (item.agence === 'Solde initial') return;
+    const categorie = BANK_TO_DEP[item.type] || 'Facture divers';
+    appData.depenses.unshift({
+      id: 'b_' + item.id,
+      label: item.type + (item.note ? ' — ' + item.note : ''),
+      montant: item.montant,
+      date: item.date,
+      categorie: categorie,
+    });
+  }
+}
+
+function removeSyncedItem(bankId) {
+  const syncId = 'b_' + bankId;
+  appData.revenus  = appData.revenus.filter(x => x.id !== syncId);
+  appData.depenses = appData.depenses.filter(x => x.id !== syncId);
+}
+
 function submitBancaire() {
   const montant = parseFloat(document.getElementById('b-montant').value);
   if (!montant || isNaN(montant)) { showToast('⚠️ Montant requis'); return; }
-  appData.bancaire.unshift({
+  const newItem = {
     id: uid(),
     type: document.getElementById('b-type').value,
     montant,
@@ -1235,8 +1290,10 @@ function submitBancaire() {
     sens: currentSens,
     agence: document.getElementById('b-agence').value,
     note: document.getElementById('b-note').value.trim(),
-  });
-  saveData(); closeModal(); renderCurrent(); showToast('✅ Opération enregistrée');
+  };
+  appData.bancaire.unshift(newItem);
+  syncBanqueToTableau(newItem);
+  saveData(); closeModal(); renderCurrent(); showToast('✅ Opération enregistrée et synchronisée');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
