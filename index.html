@@ -654,6 +654,7 @@ function unlock() {
   if (params.get('action') === 'depense') { switchTab('depenses'); setTimeout(() => openModal('depense'), 300); }
   else if (params.get('action') === 'revenu') { switchTab('revenus'); setTimeout(() => openModal('revenu'), 300); }
   else switchTab('dashboard');
+  setTimeout(updateHeaderSolde, 100);
 }
 function lock() {
   pinDigits = [];
@@ -671,6 +672,27 @@ function switchTab(tab) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('nav-'+tab).classList.add('active');
   render();
+}
+
+// Re-render current tab + update header solde badge
+function renderCurrent() {
+  render();
+  updateHeaderSolde();
+}
+
+function updateHeaderSolde() {
+  const totalR = appData.revenus.reduce((s,x)=>s+x.montant,0);
+  const totalD = appData.depenses.reduce((s,x)=>s+x.montant,0);
+  const solde = totalR - totalD;
+  let badge = document.getElementById('header-solde');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'header-solde';
+    badge.style.cssText = 'font-family:var(--mono);font-size:11px;font-weight:700;margin-top:3px';
+    document.querySelector('.header-brand').appendChild(badge);
+  }
+  badge.style.color = solde >= 0 ? 'var(--cyan)' : 'var(--red)';
+  badge.textContent = (solde>=0?'+':'') + fmt(solde);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -907,7 +929,8 @@ function renderBancaire(c) {
 function deleteItem(section, id) {
   appData[section] = appData[section].filter(x => x.id != id);
   saveData();
-  render();
+  renderCurrent();
+  updateHeaderSolde();
   showToast('🗑 Supprimé');
 }
 
@@ -976,7 +999,7 @@ function confirmReset() {
   if (bancaire) appData.bancaire = [];
   saveData();
   document.getElementById('modal-container').innerHTML = '';
-  render();
+  renderCurrent();
   showToast('✅ Données réinitialisées');
 }
 
@@ -1056,7 +1079,7 @@ function confirmImport() {
   if (count === 0) { showToast('⚠️ Aucune donnée valide'); return; }
   saveData();
   document.getElementById('modal-container').innerHTML = '';
-  render();
+  renderCurrent();
   showToast('✅ ' + count + ' opération' + (count>1?'s':'') + ' importée' + (count>1?'s':''));
 }
 
@@ -1103,7 +1126,7 @@ function submitRevenu() {
   const categorie = document.getElementById('r-cat').value;
   if (!label || !montant || isNaN(montant)) { showToast('⚠️ Remplissez tous les champs'); return; }
   appData.revenus.unshift({id:uid(),label,montant,date,categorie});
-  saveData(); closeModal(); render(); showToast('✅ Revenu enregistré');
+  saveData(); closeModal(); renderCurrent(); showToast('✅ Revenu enregistré');
 }
 
 function buildModalDepense(overlay) {
@@ -1164,7 +1187,7 @@ function submitDepense() {
   const date = document.getElementById('d-date').value;
   if (!label || !montant || isNaN(montant)) { showToast('⚠️ Remplissez tous les champs'); return; }
   appData.depenses.unshift({id:uid(),label,montant,date,categorie:selectedCat});
-  saveData(); closeModal(); render(); showToast('✅ Dépense enregistrée');
+  saveData(); closeModal(); renderCurrent(); showToast('✅ Dépense enregistrée');
 }
 
 function buildModalBancaire(overlay) {
@@ -1213,7 +1236,7 @@ function submitBancaire() {
     agence: document.getElementById('b-agence').value,
     note: document.getElementById('b-note').value.trim(),
   });
-  saveData(); closeModal(); render(); showToast('✅ Opération enregistrée');
+  saveData(); closeModal(); renderCurrent(); showToast('✅ Opération enregistrée');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
