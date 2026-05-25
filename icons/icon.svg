@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Fond maskable (safe zone = cercle centré 80%) -->
+  <rect width="512" height="512" fill="#0f172a"/>
+  <!-- Cercle décoratif fond -->
+  <circle cx="256" cy="256" r="200" fill="#1e293b"/>
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#22d3ee" stroke-width="3" opacity="0.3"/>
+  <!-- Symbole $ stylisé -->
+  <text x="256" y="300" font-family="Georgia,serif" font-size="200" font-weight="700" fill="#22d3ee" text-anchor="middle" dominant-baseline="middle" opacity="0.15">₣</text>
+  <!-- Barre verticale du signe -->
+  <rect x="242" y="120" width="28" height="272" rx="14" fill="#0f172a"/>
+  <!-- Courbe haute -->
+  <path d="M256 145 C310 145 350 175 350 210 C350 245 310 265 256 265" stroke="#22d3ee" stroke-width="22" fill="none" stroke-linecap="round"/>
+  <!-- Courbe basse -->
+  <path d="M256 265 C202 265 162 285 162 320 C162 355 202 380 256 380" stroke="#22d3ee" stroke-width="22" fill="none" stroke-linecap="round"/>
+  <!-- Trait déco gauche -->
+  <line x1="162" y1="145" x2="350" y2="145" stroke="#22d3ee" stroke-width="8" stroke-linecap="round" opacity="0.4"/>
+  <line x1="162" y1="380" x2="350" y2="380" stroke="#22d3ee" stroke-width="8" stroke-linecap="round" opacity="0.4"/>
+  <!-- Point lumineux -->
+  <circle cx="256" cy="256" r="6" fill="#22d3ee"/>
+</svg>
