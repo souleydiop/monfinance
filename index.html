@@ -452,7 +452,11 @@
         <div class="title">MONFINANCE</div>
         <div class="sub" id="header-sub">Mai 2026</div>
       </div>
-      <button class="lock-btn" onclick="lock()">🔒 Verrouiller</button>
+      <div style="display:flex;gap:8px;align-items:center">
+          <button class="lock-btn" onclick="openImportModal()" style="color:var(--purple);border-color:rgba(124,58,237,.3)">📥 Import</button>
+          <button class="lock-btn" onclick="openResetModal()" style="color:var(--red);border-color:rgba(239,68,68,.3)">🗑 Reset</button>
+          <button class="lock-btn" onclick="lock()">🔒 Verrouiller</button>
+        </div>
     </div>
 
     <div id="content"></div>
@@ -907,6 +911,155 @@ function deleteItem(section, id) {
   showToast('🗑 Supprimé');
 }
 
+// ─── RÉINITIALISATION ─────────────────────────────────────────────────────────
+function openResetModal() {
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div', { className: 'modal-overlay center' });
+  overlay.onclick = e => { if (e.target === overlay) mc.innerHTML = ''; };
+  const box = el('div', { className: 'modal-box center' });
+  box.style.cssText = 'border-radius:24px;max-width:360px;padding:28px 24px';
+  box.innerHTML = `
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:48px;margin-bottom:12px">⚠️</div>
+      <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px">Réinitialiser les données</div>
+      <div style="font-size:13px;color:var(--text3);line-height:1.6">Choisissez ce que vous voulez effacer.<br/>Cette action est <strong style="color:var(--red)">irréversible</strong>.</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+      <label style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:12px 14px;cursor:pointer">
+        <input type="checkbox" id="rst-revenus" style="width:18px;height:18px;accent-color:var(--cyan)">
+        <div><div style="font-size:13px;font-weight:600;color:var(--text)">Revenus</div><div id="rst-rev-count" style="font-size:11px;color:var(--text3)"></div></div>
+      </label>
+      <label style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:12px 14px;cursor:pointer">
+        <input type="checkbox" id="rst-depenses" style="width:18px;height:18px;accent-color:var(--pink)">
+        <div><div style="font-size:13px;font-weight:600;color:var(--text)">Dépenses</div><div id="rst-dep-count" style="font-size:11px;color:var(--text3)"></div></div>
+      </label>
+      <label style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:12px 14px;cursor:pointer">
+        <input type="checkbox" id="rst-bancaire" style="width:18px;height:18px;accent-color:var(--purple)">
+        <div><div style="font-size:13px;font-weight:600;color:var(--text)">Historique bancaire</div><div id="rst-ban-count" style="font-size:11px;color:var(--text3)"></div></div>
+      </label>
+      <label style="display:flex;align-items:center;gap:12px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:12px;padding:12px 14px;cursor:pointer">
+        <input type="checkbox" id="rst-tout" onchange="toggleTout(this)" style="width:18px;height:18px;accent-color:var(--red)">
+        <div><div style="font-size:13px;font-weight:700;color:var(--red)">Tout effacer</div><div style="font-size:11px;color:var(--text3)">Remet l'app à zéro complet</div></div>
+      </label>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Annuler</button>
+      <button onclick="confirmReset()" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#ef4444,#b91c1c);border:none;color:white;font-weight:700;font-size:14px">Effacer</button>
+    </div>`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+  // Fill counts after DOM insert
+  setTimeout(() => {
+    const r = document.getElementById('rst-rev-count');
+    const d = document.getElementById('rst-dep-count');
+    const b = document.getElementById('rst-ban-count');
+    if(r) r.textContent = appData.revenus.length + ' entrée' + (appData.revenus.length>1?'s':'');
+    if(d) d.textContent = appData.depenses.length + ' entrée' + (appData.depenses.length>1?'s':'');
+    if(b) b.textContent = appData.bancaire.length + ' opération' + (appData.bancaire.length>1?'s':'');
+  }, 10);
+}
+
+function toggleTout(cb) {
+  ['rst-revenus','rst-depenses','rst-bancaire'].forEach(id => {
+    document.getElementById(id).checked = cb.checked;
+  });
+}
+
+function confirmReset() {
+  const revenus  = document.getElementById('rst-revenus')?.checked;
+  const depenses = document.getElementById('rst-depenses')?.checked;
+  const bancaire = document.getElementById('rst-bancaire')?.checked;
+  if (!revenus && !depenses && !bancaire) { showToast('⚠️ Rien sélectionné'); return; }
+  if (revenus)  appData.revenus  = [];
+  if (depenses) appData.depenses = [];
+  if (bancaire) appData.bancaire = [];
+  saveData();
+  document.getElementById('modal-container').innerHTML = '';
+  render();
+  showToast('✅ Données réinitialisées');
+}
+
+// ─── IMPORT / DÉCOUVERT ───────────────────────────────────────────────────────
+function openImportModal() {
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div', { className: 'modal-overlay' });
+  overlay.onclick = e => { if (e.target === overlay) mc.innerHTML = ''; };
+  const box = el('div', { className: 'modal-box' });
+  box.innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-title">
+      <span style="color:var(--purple)">📥 Charger des opérations</span>
+      <button class="modal-close" onclick="document.getElementById('modal-container').innerHTML=''">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;line-height:1.6">
+      Une opération par ligne :<br/>
+      <code style="color:var(--cyan);font-size:11px">DATE | LIBELLÉ | MONTANT | CATÉGORIE</code><br/>
+      <span style="font-size:11px;color:var(--text4)">Ex: 2026-05-25 | Salaire | 650000 | Emploi</span>
+    </div>
+    <label class="form-label">Type d'import</label>
+    <div class="sens-toggle" style="margin-bottom:14px">
+      <button class="sens-btn active-credit" id="imp-rev" onclick="setImportType('revenu')" style="font-size:12px">↑ Revenus</button>
+      <button class="sens-btn" id="imp-dep" onclick="setImportType('depense')" style="font-size:12px">↓ Dépenses</button>
+      <button class="sens-btn" id="imp-ban" onclick="setImportType('bancaire')" style="font-size:12px">🏦 Banque</button>
+    </div>
+    <label class="form-label">Découvert initial (FCFA)</label>
+    <input class="form-input" id="imp-decouvert" type="number" placeholder="Ex: -45000 si découvert, 0 sinon" />
+    <label class="form-label">Opérations en lot</label>
+    <textarea id="imp-text" placeholder="2026-05-25 | Salaire mai | 650000 | Emploi" style="width:100%;height:130px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-size:12px;font-family:var(--mono);resize:vertical;line-height:1.6;outline:none;margin-bottom:14px"></textarea>
+    <div style="display:flex;gap:10px">
+      <button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Annuler</button>
+      <button onclick="confirmImport()" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:white;font-weight:700;font-size:14px">Importer</button>
+    </div>`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+  importType = 'revenu';
+}
+
+let importType = 'revenu';
+function setImportType(t) {
+  importType = t;
+  document.getElementById('imp-rev').className = 'sens-btn' + (t==='revenu'?' active-credit':'');
+  document.getElementById('imp-dep').className = 'sens-btn' + (t==='depense'?' active-debit':'');
+  document.getElementById('imp-ban').className = 'sens-btn' + (t==='bancaire'?' active-credit':'');
+}
+
+function confirmImport() {
+  const decouvert = parseFloat(document.getElementById('imp-decouvert').value) || 0;
+  const text = document.getElementById('imp-text').value.trim();
+  let count = 0;
+  if (decouvert !== 0) {
+    appData.bancaire.unshift({ id:uid(), type:decouvert<0?'Agios':'Virement', montant:Math.abs(decouvert),
+      date:today(), sens:decouvert<0?'debit':'credit', agence:'Solde initial',
+      note:'Découvert / Solde de départ : ' + fmt(decouvert) });
+    count++;
+  }
+  if (text) {
+    text.split('\n').map(l=>l.trim()).filter(Boolean).forEach(line => {
+      const parts = line.split('|').map(p=>p.trim());
+      if (parts.length < 3) return;
+      const [date, label, montantStr, categorie] = parts;
+      const montant = parseFloat(montantStr.replace(/\s/g,''));
+      if (!montant || isNaN(montant)) return;
+      if (importType === 'revenu') {
+        appData.revenus.unshift({ id:uid(), label:label||'Import', montant, date:date||today(), categorie:categorie||'Autre' });
+      } else if (importType === 'depense') {
+        const cat = CATS_DEP_FLAT.find(c=>c.toLowerCase()===(categorie||'').toLowerCase()) || categorie || 'Maison divers';
+        appData.depenses.unshift({ id:uid(), label:label||'Import', montant, date:date||today(), categorie:cat });
+      } else {
+        appData.bancaire.unshift({ id:uid(), type:categorie||'Virement', montant, date:date||today(), sens:'credit', agence:'Import', note:label||'' });
+      }
+      count++;
+    });
+  }
+  if (count === 0) { showToast('⚠️ Aucune donnée valide'); return; }
+  saveData();
+  document.getElementById('modal-container').innerHTML = '';
+  render();
+  showToast('✅ ' + count + ' opération' + (count>1?'s':'') + ' importée' + (count>1?'s':''));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MODALS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1171,8 +1324,60 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ─── CONFIRMATION FERMETURE ───────────────────────────────────────────────────
+window.addEventListener('beforeunload', e => {
+  // Only warn if app is unlocked and has data
+  const mainVisible = document.getElementById('main-screen').style.display !== 'none';
+  if (mainVisible) {
+    e.preventDefault();
+    e.returnValue = 'Voulez-vous vraiment quitter MonFinance ? Vos données sont sauvegardées localement.';
+    return e.returnValue;
+  }
+});
+
+// Intercept Android back button / PWA navigation
+window.addEventListener('popstate', e => {
+  const mainVisible = document.getElementById('main-screen').style.display !== 'none';
+  const modalOpen = document.getElementById('modal-container').innerHTML !== '';
+  if (modalOpen) {
+    document.getElementById('modal-container').innerHTML = '';
+    return;
+  }
+  if (mainVisible && currentTab !== 'dashboard') {
+    switchTab('dashboard');
+    history.pushState(null, '', location.href);
+    return;
+  }
+  if (mainVisible) {
+    showExitConfirm();
+    history.pushState(null, '', location.href);
+  }
+});
+
+// Push initial state for back button support
+history.pushState(null, '', location.href);
+
+function showExitConfirm() {
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div', { className: 'modal-overlay center' });
+  overlay.onclick = e => { if(e.target===overlay) mc.innerHTML=''; };
+  const box = el('div', { className: 'modal-box center' });
+  box.style.cssText = 'border-radius:24px;max-width:320px;padding:28px 24px;text-align:center';
+  box.innerHTML = `
+    <div style="font-size:48px;margin-bottom:12px">👋</div>
+    <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px">Quitter MonFinance ?</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:24px;line-height:1.6">Vos données sont sauvegardées localement et resteront disponibles.</div>
+    <div style="display:flex;gap:10px">
+      <button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Rester</button>
+      <button onclick="window.close()||history.go(-2)" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#334155,#1e293b);border:1px solid var(--border);color:var(--text);font-weight:700;font-size:14px">Quitter</button>
+    </div>`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
-console.log('MonFinance v1.0.0 — PWA Ready');
+console.log('MonFinance v2.0.0 — PWA Ready');
 </script>
 </body>
 </html>

@@ -1,11 +1,12 @@
 {
   "name": "MonFinance - Gestion Financière",
   "short_name": "MonFinance",
-  "description": "Application de gestion financière personnelle : revenus, dépenses, historique bancaire. Sécurisée par code PIN.",
+  "description": "Application de gestion financière personnelle : revenus, dépenses, historique bancaire. Sécurisée par code PIN. Fonctionne hors ligne.",
   "start_url": "./index.html",
   "scope": "./",
+  "id": "monfinance-pwa-v1",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui", "browser"],
   "orientation": "portrait-primary",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
@@ -14,71 +15,29 @@
   "categories": ["finance", "productivity"],
   "iarc_rating_id": "",
   "prefer_related_applications": false,
+
   "icons": [
-    {
-      "src": "icons/icon-72.png",
-      "sizes": "72x72",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-96.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-144.png",
-      "sizes": "144x144",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-152.png",
-      "sizes": "152x152",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icons/icon-384.png",
-      "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icons/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    { "src": "icons/icon-72.png",  "sizes": "72x72",   "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-96.png",  "sizes": "96x96",   "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-128.png", "sizes": "128x128", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-144.png", "sizes": "144x144", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-152.png", "sizes": "152x152", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-384.png", "sizes": "384x384", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon.svg",     "sizes": "any",      "type": "image/svg+xml", "purpose": "any maskable" }
   ],
+
   "screenshots": [
     {
       "src": "icons/screenshot-mobile.png",
-      "sizes": "390x844",
+      "sizes": "390x390",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Tableau de bord MonFinance"
     }
   ],
+
   "shortcuts": [
     {
       "name": "Ajouter dépense",
@@ -93,14 +52,89 @@
       "description": "Enregistrer un nouveau revenu",
       "url": "./index.html?action=revenu",
       "icons": [{ "src": "icons/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Historique bancaire",
+      "short_name": "Banque",
+      "description": "Voir les opérations bancaires",
+      "url": "./index.html?action=bancaire",
+      "icons": [{ "src": "icons/icon-96.png", "sizes": "96x96" }]
     }
   ],
-  "related_applications": [],
-  "protocol_handlers": [],
-  "file_handlers": [],
+
   "share_target": {
     "action": "./index.html",
-    "method": "GET",
-    "params": { "title": "title", "text": "text" }
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "csv",
+          "accept": ["text/csv", ".csv"]
+        }
+      ]
+    }
+  },
+
+  "file_handlers": [
+    {
+      "action": "./index.html",
+      "accept": {
+        "text/csv": [".csv"],
+        "application/json": [".json"]
+      },
+      "icons": [{ "src": "icons/icon-96.png", "sizes": "96x96" }],
+      "launch_type": "single-client"
+    }
+  ],
+
+  "protocol_handlers": [
+    {
+      "protocol": "web+monfinance",
+      "url": "./index.html?protocol=%s"
+    }
+  ],
+
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+
+  "handle_links": "preferred",
+
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+
+  "widgets": [
+    {
+      "name": "Solde MonFinance",
+      "short_name": "Solde",
+      "description": "Affiche le solde net du mois",
+      "tag": "monfinance-solde",
+      "template": "monfinance-widget",
+      "ms_ac_template": "widgets/solde.json",
+      "data": "widgets/solde-data.json",
+      "type": "application/json",
+      "screenshots": [{ "src": "icons/icon-192.png", "sizes": "192x192", "label": "Widget solde" }],
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }],
+      "backgrounds": [{ "src": "icons/icon-512.png", "sizes": "512x512" }],
+      "multiple": false,
+      "update": 3600
+    }
+  ],
+
+  "note_taking": {
+    "new_note_url": "./index.html?action=depense"
+  },
+
+  "related_applications": [],
+
+  "serviceworker": {
+    "src": "./sw.js",
+    "scope": "./",
+    "update_via_cache": "none"
   }
 }
