@@ -820,7 +820,7 @@ function renderRevenus(c) {
         </div>
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:var(--cyan)">+${fmt(item.montant)}</div>
-          <button class="item-del" onclick="deleteItem('revenus',${item.id})">🗑</button>
+          <button class="item-del" data-section="revenus" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
     c.appendChild(row);
@@ -879,7 +879,7 @@ function renderDepenses(c) {
         </div>
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:var(--pink)">-${fmt(item.montant)}</div>
-          <button class="item-del" onclick="deleteItem('depenses',${item.id})">🗑</button>
+          <button class="item-del" data-section="depenses" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
     c.appendChild(row);
@@ -947,7 +947,7 @@ function renderBancaire(c) {
         </div>
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:${isC?'var(--cyan)':'var(--pink)'}">${isC?'+':'-'}${fmt(item.montant)}</div>
-          <button class="item-del" onclick="deleteItem('bancaire',${item.id})">🗑</button>
+          <button class="item-del" data-section="bancaire" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
     c.appendChild(row);
@@ -959,11 +959,22 @@ function renderBancaire(c) {
 // DATA OPERATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 function deleteItem(section, id) {
-  appData[section] = appData[section].filter(x => x.id != id);
+  appData[section] = appData[section].filter(x => String(x.id) !== String(id));
   saveData();
   renderCurrent();
   updateHeaderSolde();
   showToast('🗑 Supprimé');
+}
+
+// ─── NETTOYAGE DOUBLONS ──────────────────────────────────────────────────────
+function cleanupDuplicates() {
+  const bankTypes = ['Retrait GAB', 'Retrait app web', 'Agios', 'Assurance', 'Épargne', 'Échéance prêt', 'Virement', 'Salaire'];
+  const before = appData.depenses.length;
+  appData.depenses = appData.depenses.filter(d => !bankTypes.some(t => d.label && d.label.startsWith(t)));
+  const removed = before - appData.depenses.length;
+  saveData();
+  renderCurrent();
+  showToast('✅ ' + removed + ' doublon(s) supprimé(s)');
 }
 
 // ─── RÉINITIALISATION ─────────────────────────────────────────────────────────
@@ -1001,6 +1012,9 @@ function openResetModal() {
     <div style="display:flex;gap:10px">
       <button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Annuler</button>
       <button onclick="confirmReset()" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#ef4444,#b91c1c);border:none;color:white;font-weight:700;font-size:14px">Effacer</button>
+    </div>
+    <div style="margin-top:10px">
+      <button onclick="cleanupDuplicates();document.getElementById('modal-container').innerHTML=''" style="width:100%;padding:12px;border-radius:12px;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.3);color:var(--orange);font-weight:600;font-size:13px">🧹 Nettoyer les doublons bancaires dans Dépenses</button>
     </div>`;
   overlay.appendChild(box);
   mc.appendChild(overlay);
