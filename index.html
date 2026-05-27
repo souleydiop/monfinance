@@ -6,11 +6,11 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
   <!-- PWA Meta -->
-  <title>MonFinance · Gestion Financière</title>
+  <title>Finance · Gestion Financière</title>
   <meta name="description" content="Application de gestion financière personnelle. Revenus, dépenses, historique bancaire. Sécurisée par code PIN. Fonctionne hors ligne." />
   <meta name="keywords" content="finance, budget, dépenses, revenus, FCFA, Sénégal, gestion, banque" />
-  <meta name="author" content="MonFinance" />
-  <meta name="application-name" content="MonFinance" />
+  <meta name="author" content="Finance" />
+  <meta name="application-name" content="Finance" />
 
   <!-- Theme & Color -->
   <meta name="theme-color" content="#0f172a" />
@@ -22,7 +22,7 @@
   <!-- iOS PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="MonFinance" />
+  <meta name="apple-mobile-web-app-title" content="Finance" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-192.png" />
@@ -35,7 +35,7 @@
   <link rel="shortcut icon" href="icons/icon-192.png" />
 
   <!-- Open Graph -->
-  <meta property="og:title" content="MonFinance · Gestion Financière" />
+  <meta property="og:title" content="Finance · Gestion Financière" />
   <meta property="og:description" content="Gérez vos finances personnelles. Revenus, dépenses, banque." />
   <meta property="og:image" content="icons/icon-512.png" />
   <meta property="og:type" content="website" />
@@ -154,14 +154,16 @@
       position: sticky; top: 0; z-index: 100;
       display: flex; justify-content: space-between; align-items: center;
     }
-    .header-brand .title { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--cyan); letter-spacing: 3px; }
+    .header-brand .title { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; }
     .header-brand .sub { font-size: 10px; color: var(--text4); margin-top: 2px; }
     .lock-btn {
       background: rgba(255,255,255,0.05); border: 1px solid var(--border);
-      border-radius: 10px; padding: 7px 13px; color: var(--text3); font-size: 11px;
-      transition: all 0.2s;
+      border-radius: 10px; padding: 7px 10px; color: var(--text3); font-size: 11px;
+      transition: all 0.2s; white-space: nowrap;
     }
     .lock-btn:hover { background: rgba(255,255,255,0.1); color: var(--text2); }
+    .lock-btn .btn-label { display: none; }
+    @media (min-width: 400px) { .lock-btn .btn-label { display: inline; margin-left: 4px; } }
 
     /* ── Bottom Nav ──────────────────────────────────────────────────────── */
     #bottom-nav {
@@ -418,7 +420,7 @@
   <div id="pin-screen">
     <div class="pin-logo fadeUp">
       <span class="emoji">💰</span>
-      <div class="title">MONFINANCE</div>
+      <div class="title">FINANCE</div>
       <div class="sub">Podor · Dakar · Kaolack</div>
     </div>
     <div class="pin-dots fadeUp2" id="pin-dots">
@@ -449,13 +451,14 @@
   <div id="main-screen" style="display:none">
     <div id="header">
       <div class="header-brand">
-        <div class="title">MONFINANCE</div>
+        <div class="title">FINANCE</div>
         <div class="sub" id="header-sub">Mai 2026</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-          <button class="lock-btn" onclick="openImportModal()" style="color:var(--purple);border-color:rgba(124,58,237,.3)">📥 Import</button>
-          <button class="lock-btn" onclick="openResetModal()" style="color:var(--red);border-color:rgba(239,68,68,.3)">🗑 Reset</button>
-          <button class="lock-btn" onclick="lock()">🔒 Verrouiller</button>
+          <button class="lock-btn" onclick="openImportModal()" style="color:var(--purple);border-color:rgba(124,58,237,.3)">📥<span class="btn-label">Import</span></button>
+          <button class="lock-btn" onclick="openExportModal()" style="color:var(--green);border-color:rgba(74,222,128,.3)">📊<span class="btn-label">Export</span></button>
+          <button class="lock-btn" onclick="openResetModal()" style="color:var(--red);border-color:rgba(239,68,68,.3)">🗑<span class="btn-label">Reset</span></button>
+          <button class="lock-btn" onclick="lock()">🔒</button>
         </div>
     </div>
 
@@ -478,6 +481,10 @@
         <span class="nav-icon">🏦</span>
         <span class="nav-label">Banque</span>
       </button>
+      <button class="nav-btn" id="nav-charts" onclick="switchTab('charts')">
+        <span class="nav-icon">📈</span>
+        <span class="nav-label">Trends</span>
+      </button>
     </nav>
   </div>
 
@@ -486,7 +493,7 @@
     <div class="install-icon">📲</div>
     <div style="flex:1">
       <div class="install-text">
-        <div class="t1">Installer MonFinance</div>
+        <div class="t1">Installer Finance</div>
         <div class="t2">Accès rapide, fonctionne hors ligne</div>
       </div>
       <div class="install-actions">
@@ -512,27 +519,28 @@ const CORRECT_PIN = '1234';
 const CATS_REV = ['Emploi', 'Freelance', 'Immobilier', 'Remboursement', 'Autre'];
 
 const CATS_DEP_GROUPED = {
-  '🏠 Maison DKR': ['Maison nn','Maison loan nn','Maison dq','Maison café','Maison huile','Maison riz','Maison gaz','Maison lait','Maison oignon','Maison divers'],
-  '🏠 Maison KLK': ['Maison KLK'],
-  '🏫 École': ['École Blossom','École Sacré Cœur','École Blossom transport','École AWET'],
-  '👩‍👧 Services': ['Service bonne','Service cimetière','Service mouton','Service péage Eiffage','Service péage KLK','Service divers'],
-  '🤝 Aide famille': ['Aide mak','Aide mère Ndeye','Aide divers'],
-  '📋 Factures': ['Facture tél','Facture internet','Facture SENEAU KLK','Facture SENEAU DKR','Facture Woyofal DKR','Facture Woyofal KLK','Facture divers'],
-  '🏘️ Loyers': ['Loyer VDN','Loyer KLK'],
+  'Maison':  ['Maison'],
+  'École':   ['École'],
+  'Service': ['Service'],
+  'Aide':    ['Aide'],
+  'Facture': ['Facture'],
+  'Loyer':   ['Loyer'],
 };
 const CATS_DEP_FLAT = Object.values(CATS_DEP_GROUPED).flat();
 
-const TYPES_BANCAIRE = ['Salaire','Agios','Assurance','Épargne enfants','Échéance prêt','Retrait app web','Retrait GAB','Virement'];
+const TYPES_BANCAIRE = ['Salaire','Agios','Assurance','Épargne','Échéance prêt','Retrait app web','Retrait GAB','Virement'];
 const AGENCES = ['CBAO Dakar','CBAO Kaolack','BIS Dakar','BIS Kaolack','Ecobank Dakar','Ecobank Kaolack','UBA Dakar','Wave','Orange Money','Autre'];
 
 const GRP_COLORS = {
-  '🏠 Maison DKR':'#fb923c','🏠 Maison KLK':'#f97316',
-  '🏫 École':'#a78bfa','👩‍👧 Services':'#34d399',
-  '🤝 Aide famille':'#f472b6','📋 Factures':'#facc15',
-  '🏘️ Loyers':'#22d3ee'
+  'Maison':'#fb923c',
+  'École':'#a78bfa',
+  'Service':'#34d399',
+  'Aide':'#f472b6',
+  'Facture':'#facc15',
+  'Loyer':'#22d3ee',
 };
 const REV_COLORS = {Emploi:'#22d3ee',Freelance:'#a78bfa',Immobilier:'#34d399',Remboursement:'#4ade80',Autre:'#94a3b8'};
-const BANK_COLORS = {Salaire:'#22d3ee',Agios:'#f87171',Assurance:'#fb923c','Épargne enfants':'#a78bfa','Échéance prêt':'#f472b6','Retrait app web':'#facc15','Retrait GAB':'#fbbf24',Virement:'#34d399'};
+const BANK_COLORS = {Salaire:'#22d3ee',Agios:'#f87171',Assurance:'#fb923c','Épargne':'#a78bfa','Échéance prêt':'#f472b6','Retrait app web':'#facc15','Retrait GAB':'#fbbf24',Virement:'#34d399'};
 
 function getCatColor(cat) {
   for (const [grp, cats] of Object.entries(CATS_DEP_GROUPED)) {
@@ -566,7 +574,7 @@ const DEFAULT_DATA = {
     {id:2,type:'Retrait GAB',montant:100000,date:'2026-05-03',sens:'debit',agence:'CBAO Kaolack',note:''},
     {id:3,type:'Agios',montant:4500,date:'2026-05-10',sens:'debit',agence:'CBAO Dakar',note:'Commission compte'},
     {id:4,type:'Assurance',montant:22000,date:'2026-05-15',sens:'debit',agence:'CBAO Dakar',note:'Prélèvement auto'},
-    {id:5,type:'Épargne enfants',montant:50000,date:'2026-05-15',sens:'debit',agence:'BIS Dakar',note:''},
+    {id:5,type:'Épargne',montant:50000,date:'2026-05-15',sens:'debit',agence:'BIS Dakar',note:''},
     {id:6,type:'Échéance prêt',montant:85000,date:'2026-05-20',sens:'debit',agence:'CBAO Dakar',note:'Crédit immobilier'},
   ]
 };
@@ -706,6 +714,7 @@ function render() {
   else if (currentTab === 'revenus') renderRevenus(c);
   else if (currentTab === 'depenses') renderDepenses(c);
   else if (currentTab === 'bancaire') renderBancaire(c);
+  else if (currentTab === 'charts') renderCharts(c);
   c.classList.add('fadeUp');
 }
 
@@ -812,10 +821,16 @@ function renderDepenses(c) {
 
   const header = el('div',{className:'page-header'});
   header.innerHTML = `<div><div class="page-total-label">TOTAL DÉPENSES</div><div class="page-total-value" style="color:var(--pink)">${fmt(total)}</div></div>`;
-  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#f472b6,#be185d)'});
+  const btnWrap2 = el('div',{style:'display:flex;gap:8px'});
+  const btnExpD = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#059669,#047857);font-size:12px;padding:10px 12px'});
+  btnExpD.textContent = '📊 Excel';
+  btnExpD.onclick = () => exportExcel('depenses');
+  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#f472b6,#be185d);font-size:12px;padding:10px 12px'});
   btn.textContent = '+ Ajouter';
   btn.onclick = () => openModal('depense');
-  header.appendChild(btn);
+  btnWrap2.appendChild(btnExpD);
+  btnWrap2.appendChild(btn);
+  header.appendChild(btnWrap2);
   c.appendChild(header);
 
   // Filter chips
@@ -877,10 +892,16 @@ function renderBancaire(c) {
 
   const topRow = el('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'});
   topRow.innerHTML = `<div class="section-title" style="margin:0">${appData.bancaire.length} OPÉRATION${appData.bancaire.length>1?'S':''}</div>`;
-  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5)'});
+  const btnWrap = el('div',{style:'display:flex;gap:8px'});
+  const btnExp = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#059669,#047857);font-size:12px;padding:10px 12px'});
+  btnExp.textContent = '📊 Excel';
+  btnExp.onclick = () => exportExcel('banque');
+  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5);font-size:12px;padding:10px 12px'});
   btn.textContent = '+ Ajouter';
   btn.onclick = () => openModal('bancaire');
-  topRow.appendChild(btn);
+  btnWrap.appendChild(btnExp);
+  btnWrap.appendChild(btn);
+  topRow.appendChild(btnWrap);
   c.appendChild(topRow);
 
   // Filter
@@ -1067,7 +1088,7 @@ function confirmImport() {
       if (importType === 'revenu') {
         appData.revenus.unshift({ id:uid(), label:label||'Import', montant, date:date||today(), categorie:categorie||'Autre' });
       } else if (importType === 'depense') {
-        const cat = CATS_DEP_FLAT.find(c=>c.toLowerCase()===(categorie||'').toLowerCase()) || categorie || 'Maison divers';
+        const cat = CATS_DEP_FLAT.find(c=>c.toLowerCase()===(categorie||'').toLowerCase()) || categorie || 'Maison';
         appData.depenses.unshift({ id:uid(), label:label||'Import', montant, date:date||today(), categorie:cat });
       } else {
         const bItem = { id:uid(), type:categorie||'Virement', montant, date:date||today(), sens: montant>0?'credit':'debit', agence:'Import', note:label||'' };
@@ -1234,12 +1255,12 @@ const BANK_TO_REV = {
 };
 // Types débit → Dépenses (categorie depense)
 const BANK_TO_DEP = {
-  'Agios':          'Facture divers',
-  'Assurance':      'Facture divers',
-  'Épargne enfants':'Facture divers',
-  'Échéance prêt':  'Facture divers',
-  'Retrait app web':'Facture divers',
-  'Retrait GAB':    'Facture divers',
+  'Agios':          'Facture',
+  'Assurance':      'Facture',
+  'Épargne':'Facture',
+  'Échéance prêt':  'Facture',
+  'Retrait app web':'Facture',
+  'Retrait GAB':    'Facture',
 };
 
 function syncBanqueToTableau(item) {
@@ -1259,7 +1280,7 @@ function syncBanqueToTableau(item) {
   // Débit → ajoute dans Dépenses
   if (item.sens === 'debit') {
     if (item.agence === 'Solde initial') return;
-    const categorie = BANK_TO_DEP[item.type] || 'Facture divers';
+    const categorie = BANK_TO_DEP[item.type] || 'Facture';
     appData.depenses.unshift({
       id: 'b_' + item.id,
       label: item.type + (item.note ? ' — ' + item.note : ''),
@@ -1380,7 +1401,7 @@ function dismissInstall() {
 
 window.addEventListener('appinstalled', () => {
   document.getElementById('install-banner').classList.remove('show');
-  showToast('🎉 MonFinance installé !');
+  showToast('🎉 Finance installé !');
 });
 
 // ── Offline detection ─────────────────────────────────────────────────────────
@@ -1407,7 +1428,7 @@ window.addEventListener('beforeunload', e => {
   const mainVisible = document.getElementById('main-screen').style.display !== 'none';
   if (mainVisible) {
     e.preventDefault();
-    e.returnValue = 'Voulez-vous vraiment quitter MonFinance ? Vos données sont sauvegardées localement.';
+    e.returnValue = 'Voulez-vous vraiment quitter Finance ? Vos données sont sauvegardées localement.';
     return e.returnValue;
   }
 });
@@ -1443,7 +1464,7 @@ function showExitConfirm() {
   box.style.cssText = 'border-radius:24px;max-width:320px;padding:28px 24px;text-align:center';
   box.innerHTML = `
     <div style="font-size:48px;margin-bottom:12px">👋</div>
-    <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px">Quitter MonFinance ?</div>
+    <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px">Quitter Finance ?</div>
     <div style="font-size:13px;color:var(--text3);margin-bottom:24px;line-height:1.6">Vos données sont sauvegardées localement et resteront disponibles.</div>
     <div style="display:flex;gap:10px">
       <button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Rester</button>
@@ -1453,8 +1474,290 @@ function showExitConfirm() {
   mc.appendChild(overlay);
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXPORT EXCEL (CSV compatible Excel + UTF-8 BOM)
+// ═══════════════════════════════════════════════════════════════════════════════
+function exportExcel(section) {
+  let rows = [], filename = '';
+  const BOM = '\uFEFF';
+
+  if (section === 'banque') {
+    filename = 'Finance_Banque_' + today() + '.csv';
+    rows.push(['Date','Type','Sens','Montant (FCFA)','Agence','Note']);
+    [...appData.bancaire].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(x => {
+      rows.push([x.date, x.type, x.sens==='credit'?'Crédit':'Débit', x.montant, x.agence, x.note||'']);
+    });
+  } else if (section === 'depenses') {
+    filename = 'Finance_Depenses_' + today() + '.csv';
+    rows.push(['Date','Libellé','Catégorie','Montant (FCFA)']);
+    [...appData.depenses].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(x => {
+      rows.push([x.date, x.label, x.categorie, x.montant]);
+    });
+  } else if (section === 'revenus') {
+    filename = 'Finance_Revenus_' + today() + '.csv';
+    rows.push(['Date','Libellé','Catégorie','Montant (FCFA)']);
+    [...appData.revenus].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(x => {
+      rows.push([x.date, x.label, x.categorie, x.montant]);
+    });
+  } else if (section === 'complet') {
+    filename = 'Finance_Complet_' + today() + '.csv';
+    rows.push(['Section','Date','Libellé / Type','Catégorie / Agence','Sens','Montant (FCFA)','Note']);
+    [...appData.bancaire].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(x => {
+      rows.push(['Banque', x.date, x.type, x.agence, x.sens==='credit'?'Crédit':'Débit', x.montant, x.note||'']);
+    });
+    [...appData.depenses].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(x => {
+      rows.push(['Dépenses', x.date, x.label, x.categorie, 'Débit', x.montant, '']);
+    });
+    [...appData.revenus].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(x => {
+      rows.push(['Revenus', x.date, x.label, x.categorie, 'Crédit', x.montant, '']);
+    });
+  }
+
+  const csv = BOM + rows.map(r => r.map(cell => {
+    const s = String(cell).replace(/"/g,'""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s}"` : s;
+  }).join(';')).join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('📊 Export ' + filename + ' téléchargé');
+}
+
+function openExportModal() {
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div', { className: 'modal-overlay center' });
+  overlay.onclick = e => { if(e.target===overlay) mc.innerHTML=''; };
+  const box = el('div', { className: 'modal-box center' });
+  box.style.cssText = 'border-radius:24px;max-width:360px;padding:28px 24px';
+  box.innerHTML = `
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:44px;margin-bottom:10px">📊</div>
+      <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:6px">Exporter vers Excel</div>
+      <div style="font-size:12px;color:var(--text3)">Fichier CSV lisible dans Excel, Google Sheets</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+      <button onclick="exportExcel('banque');document.getElementById('modal-container').innerHTML=''" style="display:flex;align-items:center;gap:14px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:14px;padding:14px 16px;cursor:pointer;text-align:left">
+        <span style="font-size:24px">🏦</span>
+        <div><div style="font-size:14px;font-weight:700;color:var(--purple)">Historique Banque</div><div style="font-size:11px;color:var(--text3)">${appData.bancaire.length} opérations</div></div>
+      </button>
+      <button onclick="exportExcel('depenses');document.getElementById('modal-container').innerHTML=''" style="display:flex;align-items:center;gap:14px;background:rgba(244,114,182,.1);border:1px solid rgba(244,114,182,.3);border-radius:14px;padding:14px 16px;cursor:pointer;text-align:left">
+        <span style="font-size:24px">↓</span>
+        <div><div style="font-size:14px;font-weight:700;color:var(--pink)">Dépenses</div><div style="font-size:11px;color:var(--text3)">${appData.depenses.length} entrées</div></div>
+      </button>
+      <button onclick="exportExcel('revenus');document.getElementById('modal-container').innerHTML=''" style="display:flex;align-items:center;gap:14px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);border-radius:14px;padding:14px 16px;cursor:pointer;text-align:left">
+        <span style="font-size:24px">↑</span>
+        <div><div style="font-size:14px;font-weight:700;color:var(--cyan)">Revenus</div><div style="font-size:11px;color:var(--text3)">${appData.revenus.length} entrées</div></div>
+      </button>
+      <button onclick="exportExcel('complet');document.getElementById('modal-container').innerHTML=''" style="display:flex;align-items:center;gap:14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);border-radius:14px;padding:14px 16px;cursor:pointer;text-align:left">
+        <span style="font-size:24px">📁</span>
+        <div><div style="font-size:14px;font-weight:700;color:var(--green)">Export complet</div><div style="font-size:11px;color:var(--text3)">Toutes les sections combinées</div></div>
+      </button>
+    </div>
+    <button onclick="document.getElementById('modal-container').innerHTML=''" style="width:100%;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Fermer</button>`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GRAPHIQUES / TRENDS (Canvas SVG inline)
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderCharts(c) {
+  // Grouper par semaine ou par jour selon les données
+  const allDates = [...new Set([
+    ...appData.bancaire.map(x=>x.date),
+    ...appData.depenses.map(x=>x.date),
+    ...appData.revenus.map(x=>x.date),
+  ])].sort();
+
+  if (allDates.length < 2) {
+    const msg = el('div',{style:'text-align:center;padding:32px;color:var(--text3);font-size:13px'});
+    msg.innerHTML = "<div style='font-size:32px;margin-bottom:10px'>📈</div>Ajoutez plus d'op&eacute;rations pour voir les tendances";
+    c.appendChild(msg);
+    return;
+  }
+
+  // ── Courbe tendance solde bancaire cumulé ─────────────────────────────────
+  const bankByDate = {};
+  [...appData.bancaire].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(x => {
+    if (!bankByDate[x.date]) bankByDate[x.date] = 0;
+    bankByDate[x.date] += x.sens==='credit' ? x.montant : -x.montant;
+  });
+  const bankDates = Object.keys(bankByDate).sort();
+  let cumul = 0;
+  const bankPoints = bankDates.map(d => { cumul += bankByDate[d]; return { d, v: cumul }; });
+
+  if (bankPoints.length >= 2) {
+    c.appendChild(renderLineChart('📈 Solde bancaire cumulé', bankPoints, '#22d3ee', true));
+  }
+
+  // ── Barres dépenses par catégorie famille ────────────────────────────────
+  const famByGrp = {};
+  appData.depenses.forEach(d => {
+    const g = getGrpForCat(d.categorie);
+    famByGrp[g] = (famByGrp[g]||0) + d.montant;
+  });
+  if (Object.keys(famByGrp).length > 0) {
+    c.appendChild(renderBarChart('👨‍👩‍👧 Dépenses famille par catégorie', famByGrp));
+  }
+
+  // ── Courbe revenus vs dépenses par date ──────────────────────────────────
+  const revByDate = {};
+  appData.revenus.forEach(x => { revByDate[x.date] = (revByDate[x.date]||0) + x.montant; });
+  const depByDate = {};
+  appData.depenses.forEach(x => { depByDate[x.date] = (depByDate[x.date]||0) + x.montant; });
+
+  const allD = [...new Set([...Object.keys(revByDate),...Object.keys(depByDate)])].sort();
+  if (allD.length >= 2) {
+    const revPts = allD.map(d=>({ d, v: revByDate[d]||0 }));
+    const depPts = allD.map(d=>({ d, v: depByDate[d]||0 }));
+    c.appendChild(renderDualLineChart('💰 Revenus vs Dépenses', revPts, depPts));
+  }
+
+  // ── Donut débits bancaires par type ──────────────────────────────────────
+  const debByType = {};
+  appData.bancaire.filter(x=>x.sens==='debit').forEach(x => {
+    debByType[x.type] = (debByType[x.type]||0) + x.montant;
+  });
+  if (Object.keys(debByType).length > 0) {
+    c.appendChild(renderDonut('🏦 Répartition débits bancaires', debByType));
+  }
+}
+
+function renderLineChart(title, points, color, showCumul=false) {
+  const W=340, H=140, PL=10, PR=10, PT=10, PB=30;
+  const vals = points.map(p=>p.v);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+  const toX = i => PL + (i/(points.length-1))*(W-PL-PR);
+  const toY = v => PT + (1-(v-minV)/range)*(H-PT-PB);
+
+  const pathD = points.map((p,i)=>`${i===0?'M':'L'}${toX(i).toFixed(1)},${toY(p.v).toFixed(1)}`).join(' ');
+  const areaD = pathD + ` L${toX(points.length-1).toFixed(1)},${H-PB} L${toX(0).toFixed(1)},${H-PB} Z`;
+
+  // X labels (first, mid, last)
+  const labels = [points[0], points[Math.floor(points.length/2)], points[points.length-1]];
+  const labelsSVG = labels.map((p,i) => {
+    const x = i===0 ? PL : i===1 ? W/2 : W-PR;
+    return `<text x="${x}" y="${H-5}" fill="#475569" font-size="9" text-anchor="middle">${p.d.slice(5)}</text>`;
+  }).join('');
+
+  const lastVal = vals[vals.length-1];
+  const col = lastVal >= 0 ? color : '#f87171';
+
+  const card = el('div',{className:'card'});
+  card.innerHTML = `
+    <div class="card-title">${title}</div>
+    <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${col};margin-bottom:10px">${lastVal>=0?'+':''}${fmt(lastVal)}</div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;overflow:visible">
+      <defs>
+        <linearGradient id="lg${title.length}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${col}" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="${col}" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaD}" fill="url(#lg${title.length})"/>
+      <path d="${pathD}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${toX(points.length-1).toFixed(1)}" cy="${toY(lastVal).toFixed(1)}" r="4" fill="${col}"/>
+      ${labelsSVG}
+    </svg>`;
+  return card;
+}
+
+function renderDualLineChart(title, revPts, depPts) {
+  const W=340, H=150, PL=10, PR=10, PT=10, PB=30;
+  const allVals = [...revPts.map(p=>p.v),...depPts.map(p=>p.v)];
+  const minV=0, maxV=Math.max(...allVals,1);
+  const n = revPts.length;
+  const toX = i => PL + (i/(n-1||1))*(W-PL-PR);
+  const toY = v => PT + (1-v/maxV)*(H-PT-PB);
+
+  const pathR = revPts.map((p,i)=>`${i===0?'M':'L'}${toX(i).toFixed(1)},${toY(p.v).toFixed(1)}`).join(' ');
+  const pathD = depPts.map((p,i)=>`${i===0?'M':'L'}${toX(i).toFixed(1)},${toY(p.v).toFixed(1)}`).join(' ');
+
+  const card = el('div',{className:'card'});
+  card.innerHTML = `
+    <div class="card-title">${title}</div>
+    <div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px">
+      <span style="color:#22d3ee">● Revenus</span>
+      <span style="color:#f472b6">● Dépenses</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;overflow:visible">
+      <path d="${pathR}" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${pathD}" fill="none" stroke="#f472b6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4,3"/>
+    </svg>`;
+  return card;
+}
+
+function renderBarChart(title, data) {
+  const entries = Object.entries(data).sort((a,b)=>b[1]-a[1]).slice(0,7);
+  const maxV = Math.max(...entries.map(e=>e[1]),1);
+  const card = el('div',{className:'card'});
+  let html = `<div class="card-title">${title}</div>`;
+  entries.forEach(([grp,val]) => {
+    const col = GRP_COLORS[grp]||'#94a3b8';
+    const pct = (val/maxV*100).toFixed(1);
+    html += `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--text2)">${grp}</span>
+        <span style="font-family:var(--mono);color:${col};font-weight:700">${fmt(val)}</span>
+      </div>
+      <div style="height:8px;background:rgba(255,255,255,.05);border-radius:99px">
+        <div style="height:100%;width:${pct}%;background:${col};border-radius:99px;box-shadow:0 0 8px ${col}55;transition:width 1s ease"></div>
+      </div>
+    </div>`;
+  });
+  card.innerHTML = html;
+  return card;
+}
+
+function renderDonut(title, data) {
+  const entries = Object.entries(data).sort((a,b)=>b[1]-a[1]);
+  const total = entries.reduce((s,[,v])=>s+v,0)||1;
+  const R=60, CX=80, CY=75;
+  let startAngle = -Math.PI/2;
+  let slices = '';
+  entries.forEach(([type,val]) => {
+    const angle = (val/total)*2*Math.PI;
+    const endAngle = startAngle + angle;
+    const x1=CX+R*Math.cos(startAngle), y1=CY+R*Math.sin(startAngle);
+    const x2=CX+R*Math.cos(endAngle), y2=CY+R*Math.sin(endAngle);
+    const large = angle > Math.PI ? 1 : 0;
+    const col = BANK_COLORS[type]||'#64748b';
+    slices += `<path d="M${CX},${CY} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large},1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${col}" stroke="#1e293b" stroke-width="2"/>`;
+    startAngle = endAngle;
+  });
+
+  let legend = entries.slice(0,5).map(([type,val]) => {
+    const col = BANK_COLORS[type]||'#64748b';
+    return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+      <div style="width:10px;height:10px;border-radius:3px;background:${col};flex-shrink:0"></div>
+      <span style="font-size:11px;color:var(--text2);flex:1">${type}</span>
+      <span style="font-size:11px;font-family:var(--mono);color:${col};font-weight:700">${(val/total*100).toFixed(0)}%</span>
+    </div>`;
+  }).join('');
+
+  const card = el('div',{className:'card'});
+  card.innerHTML = `
+    <div class="card-title">${title}</div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <svg viewBox="0 0 160 150" style="width:160px;flex-shrink:0">${slices}
+        <circle cx="${CX}" cy="${CY}" r="30" fill="#1e293b"/>
+        <text x="${CX}" y="${CY+4}" text-anchor="middle" fill="#e2e8f0" font-size="10" font-weight="700">${fmt(total).replace('XOF','').trim()}</text>
+      </svg>
+      <div style="flex:1">${legend}</div>
+    </div>`;
+  return card;
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
-console.log('MonFinance v2.0.0 — PWA Ready');
+console.log('Finance v2.0.0 — PWA Ready');
 </script>
 </body>
 </html>
