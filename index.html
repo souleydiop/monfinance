@@ -43,6 +43,7 @@
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Mono:wght@400;700&display=swap" />
 
   <style>
@@ -397,6 +398,15 @@
     #update-banner button { background: var(--cyan); color: var(--bg); border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 700; border: none; }
 
     /* Responsive */
+    /* Drive sync */
+    .drive-status { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text3); padding: 4px 0; }
+    .drive-dot { width:8px; height:8px; border-radius:50%; background:var(--text4); flex-shrink:0; }
+    .drive-dot.connected { background:var(--green); box-shadow:0 0 6px rgba(74,222,128,.5); }
+    .drive-dot.syncing { background:var(--yellow); animation: pulse 1s infinite; }
+    .drive-dot.error { background:var(--red); }
+    .drive-btn { background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:8px; padding:5px 10px; font-size:11px; color:var(--text2); cursor:pointer; }
+    .drive-btn.connected { color:var(--green); border-color:rgba(74,222,128,.3); }
+
     @media (min-width: 600px) {
       .modal-box { border-radius: 24px; max-width: 440px; }
       .modal-overlay { align-items: center; }
@@ -453,6 +463,10 @@
       <div class="header-brand">
         <div class="title">FINANCE</div>
         <div class="sub" id="header-sub">Mai 2026</div>
+        <div class="drive-status" id="drive-status">
+          <div class="drive-dot" id="drive-dot"></div>
+          <span id="drive-label">Non connecté</span>
+        </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
           <button class="lock-btn" onclick="openImportModal()" style="color:var(--purple);border-color:rgba(124,58,237,.3)">📥<span class="btn-label">Import</span></button>
@@ -1560,6 +1574,16 @@ function openExportModal() {
         <div><div style="font-size:14px;font-weight:700;color:var(--green)">Export complet</div><div style="font-size:11px;color:var(--text3)">Toutes les sections combinées</div></div>
       </button>
     </div>
+    <div style="border-top:1px solid var(--border);margin:16px 0 12px"></div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-align:center">SYNCHRONISATION GOOGLE DRIVE</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button onclick="connectDrive();document.getElementById('modal-container').innerHTML=''" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(66,133,244,.15);border:1px solid rgba(66,133,244,.3);border-radius:12px;padding:11px;color:#4285f4;font-weight:700;font-size:13px;cursor:pointer">
+        <img src="https://www.google.com/favicon.ico" width="16" height="16" style="border-radius:3px"/> Connecter Drive
+      </button>
+      <button onclick="saveToDrive();document.getElementById('modal-container').innerHTML=''" style="flex:1;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);border-radius:12px;padding:11px;color:var(--green);font-weight:700;font-size:13px;cursor:pointer">
+        ☁️ Sauvegarder
+      </button>
+    </div>
     <button onclick="document.getElementById('modal-container').innerHTML=''" style="width:100%;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Fermer</button>`;
   overlay.appendChild(box);
   mc.appendChild(overlay);
@@ -1756,8 +1780,211 @@ function renderDonut(title, data) {
   return card;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GOOGLE DRIVE SYNC
+// ═══════════════════════════════════════════════════════════════════════════════
+const DRIVE_CLIENT_ID = '354411309659-svp53kob700s7r8jgti4odovle7cu7tt.apps.googleusercontent.com';
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
+const DRIVE_FILE_NAME = 'finance-data.json';
+
+let driveAccessToken = null;
+let driveFileId = null;
+let driveSyncTimer = null;
+let lastSyncTime = null;
+
+function updateDriveStatus(state, msg) {
+  const dot = document.getElementById('drive-dot');
+  const label = document.getElementById('drive-label');
+  if (!dot || !label) return;
+  dot.className = 'drive-dot';
+  if (state === 'connected') { dot.classList.add('connected'); label.style.color = 'var(--green)'; }
+  else if (state === 'syncing') { dot.classList.add('syncing'); label.style.color = 'var(--yellow)'; }
+  else if (state === 'error') { dot.classList.add('error'); label.style.color = 'var(--red)'; }
+  else { label.style.color = 'var(--text3)'; }
+  label.textContent = msg;
+}
+
+// ── Connexion Google ──────────────────────────────────────────────────────────
+function connectDrive() {
+  if (!window.google) { showToast('⚠️ Google API non chargée'); return; }
+  updateDriveStatus('syncing', 'Connexion...');
+
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: DRIVE_CLIENT_ID,
+    scope: DRIVE_SCOPES,
+    callback: async (response) => {
+      if (response.error) {
+        updateDriveStatus('error', 'Erreur connexion');
+        showToast('❌ Connexion Google échouée');
+        return;
+      }
+      driveAccessToken = response.access_token;
+      localStorage.setItem('drive_token', driveAccessToken);
+      updateDriveStatus('connected', 'Connecté ✓');
+      showToast('✅ Google Drive connecté !');
+      // Try to load existing data from Drive
+      await loadFromDrive();
+      // Start auto sync every 24h
+      startAutoSync();
+    },
+  });
+  client.requestAccessToken();
+}
+
+function disconnectDrive() {
+  driveAccessToken = null;
+  driveFileId = null;
+  localStorage.removeItem('drive_token');
+  localStorage.removeItem('drive_file_id');
+  if (driveSyncTimer) clearInterval(driveSyncTimer);
+  updateDriveStatus('', 'Non connecté');
+  showToast('🔌 Drive déconnecté');
+}
+
+// ── Save to Drive ─────────────────────────────────────────────────────────────
+async function saveToDrive() {
+  if (!driveAccessToken) return;
+  updateDriveStatus('syncing', 'Sauvegarde...');
+  try {
+    const payload = JSON.stringify({ ...appData, savedAt: new Date().toISOString() });
+    const blob = new Blob([payload], { type: 'application/json' });
+
+    if (!driveFileId) {
+      // Search for existing file first
+      const searchRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${DRIVE_FILE_NAME}'`,
+        { headers: { Authorization: `Bearer ${driveAccessToken}` } }
+      );
+      const searchData = await searchRes.json();
+      if (searchData.files && searchData.files.length > 0) {
+        driveFileId = searchData.files[0].id;
+        localStorage.setItem('drive_file_id', driveFileId);
+      }
+    }
+
+    if (driveFileId) {
+      // Update existing file
+      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${driveAccessToken}`, 'Content-Type': 'application/json' },
+        body: payload,
+      });
+    } else {
+      // Create new file in appDataFolder
+      const meta = JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
+      const form = new FormData();
+      form.append('metadata', new Blob([meta], { type: 'application/json' }));
+      form.append('file', blob);
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${driveAccessToken}` },
+        body: form,
+      });
+      const data = await res.json();
+      driveFileId = data.id;
+      localStorage.setItem('drive_file_id', driveFileId);
+    }
+
+    lastSyncTime = new Date();
+    const timeStr = lastSyncTime.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+    updateDriveStatus('connected', `Sync ${timeStr} ✓`);
+  } catch(e) {
+    console.error('Drive save error:', e);
+    updateDriveStatus('error', 'Erreur sync');
+  }
+}
+
+// ── Load from Drive ───────────────────────────────────────────────────────────
+async function loadFromDrive() {
+  if (!driveAccessToken) return;
+  updateDriveStatus('syncing', 'Chargement...');
+  try {
+    const fileId = driveFileId || localStorage.getItem('drive_file_id');
+    if (!fileId) {
+      // Search for file
+      const searchRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${DRIVE_FILE_NAME}'`,
+        { headers: { Authorization: `Bearer ${driveAccessToken}` } }
+      );
+      const searchData = await searchRes.json();
+      if (!searchData.files || searchData.files.length === 0) {
+        updateDriveStatus('connected', 'Aucune donnée Drive');
+        // First time - save current data
+        await saveToDrive();
+        return;
+      }
+      driveFileId = searchData.files[0].id;
+      localStorage.setItem('drive_file_id', driveFileId);
+    }
+
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${driveFileId || fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${driveAccessToken}` } }
+    );
+    const driveData = await res.json();
+
+    if (driveData && driveData.bancaire) {
+      // Merge: use Drive data if more recent
+      const driveTime = driveData.savedAt ? new Date(driveData.savedAt) : new Date(0);
+      const localTime = localStorage.getItem('mf_last_save') ? new Date(localStorage.getItem('mf_last_save')) : new Date(0);
+
+      if (driveTime > localTime) {
+        appData = driveData;
+        delete appData.savedAt;
+        saveData();
+        render();
+        showToast('☁️ Données chargées depuis Drive');
+      } else {
+        showToast('✅ Données locales plus récentes');
+      }
+      updateDriveStatus('connected', 'Drive connecté ✓');
+    }
+  } catch(e) {
+    console.error('Drive load error:', e);
+    updateDriveStatus('error', 'Erreur chargement');
+  }
+}
+
+// ── Auto sync every 24h ───────────────────────────────────────────────────────
+function startAutoSync() {
+  if (driveSyncTimer) clearInterval(driveSyncTimer);
+  // Sync immediately
+  saveToDrive();
+  // Then every 24h
+  driveSyncTimer = setInterval(() => {
+    saveToDrive();
+  }, 24 * 60 * 60 * 1000);
+}
+
+// ── Save timestamp on every saveData ─────────────────────────────────────────
+const _origSaveData = saveData;
+// Patch saveData to also trigger Drive sync
+function saveData() {
+  localStorage.setItem('mf_data', JSON.stringify(appData));
+  localStorage.setItem('mf_last_save', new Date().toISOString());
+  // Debounce Drive sync (wait 3s after last change)
+  if (driveAccessToken) {
+    clearTimeout(window._driveSaveTimer);
+    window._driveSaveTimer = setTimeout(saveToDrive, 3000);
+  }
+}
+
+// ── Restore token on app start ────────────────────────────────────────────────
+function restoreDriveSession() {
+  const token = localStorage.getItem('drive_token');
+  const fileId = localStorage.getItem('drive_file_id');
+  if (token) {
+    driveAccessToken = token;
+    if (fileId) driveFileId = fileId;
+    updateDriveStatus('connected', 'Drive connecté ✓');
+    startAutoSync();
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 console.log('Finance v2.0.0 — PWA Ready');
+restoreDriveSession();
 </script>
 </body>
 </html>
