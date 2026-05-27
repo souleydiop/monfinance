@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// MONFINANCE SERVICE WORKER v2.0
+// FINANCE SERVICE WORKER v3.0
+// Force clear all old caches on install
 // Cache-first + Offline + Background Sync + Periodic Sync + Push + Widgets
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION   = '2.0.0';
-const STATIC_CACHE  = `monfinance-static-v${APP_VERSION}`;
-const DATA_CACHE    = `monfinance-data-v${APP_VERSION}`;
+const APP_VERSION   = '3.0.0';
+const STATIC_CACHE  = `finance-static-v${APP_VERSION}`;
+const DATA_CACHE    = `finance-data-v${APP_VERSION}`;
 const SYNC_TAG      = 'sync-transactions';
 const PERIODIC_TAG  = 'periodic-finance-check';
 
@@ -24,11 +25,14 @@ const STATIC_ASSETS = [
 // ─── INSTALL ──────────────────────────────────────────────────────────────────
 self.addEventListener('install', event => {
   console.log(`[SW v${APP_VERSION}] Installing...`);
+  // Force immediate activation
+  self.skipWaiting();
   event.waitUntil(
-    caches.open(STATIC_CACHE)
-      .then(cache => cache.addAll(STATIC_ASSETS.map(u => new Request(u, { cache: 'reload' })))
+    // Delete ALL old caches first
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+      .then(() => caches.open(STATIC_CACHE))
+      .then(cache => cache.addAll(STATIC_ASSETS.map(u => new Request(u, { cache: 'no-store' })))
         .catch(e => console.warn('[SW] Pre-cache partial fail:', e)))
-      .then(() => self.skipWaiting())
   );
 });
 
@@ -48,7 +52,7 @@ self.addEventListener('activate', event => {
             .then(() => console.log('[SW] Periodic sync registered'))
             .catch(e => console.log('[SW] Periodic sync not available:', e))
         : Promise.resolve(),
-      self.clients.claim()
+      self.clients.claim().then(() => { self.clients.matchAll().then(clients => clients.forEach(c => c.postMessage({type:'RELOAD'}))); })
     ])
   );
 });
