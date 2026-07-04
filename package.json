@@ -1,0 +1,12 @@
+{
+  "name": "monfinance",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Application de gestion financière personnelle (PWA)",
+  "scripts": {
+    "test": "jest --colors"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
