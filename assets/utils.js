@@ -126,6 +126,39 @@ function fmtPeriodLabel(bancaire, now = new Date()) {
   return `${f(start)} → ${f(end)}`;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// GOOGLE DRIVE — LOGIQUE PURE (testable sans réseau ni DOM)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Le token OAuth Google est valide s'il existe, qu'une expiration a été enregistrée,
+// et que cette expiration n'est pas encore dépassée.
+function isTokenValid(token, expiry, now = Date.now()) {
+  return Boolean(token) && Boolean(expiry) && now < Number(expiry);
+}
+
+// Une sauvegarde Drive est considérée valide si elle contient au moins un tableau
+// `bancaire` exploitable (structure attendue de l'export appData).
+function isValidDriveBackup(data) {
+  return Boolean(data) && Array.isArray(data.bancaire);
+}
+
+// Détermine si la sauvegarde Drive est plus récente que la dernière sauvegarde
+// locale, pour décider laquelle doit l'emporter lors du chargement.
+function isDriveDataNewer(driveSavedAt, localLastSave) {
+  const driveTime = driveSavedAt ? new Date(driveSavedAt) : new Date(0);
+  const localTime = localLastSave ? new Date(localLastSave) : new Date(0);
+  return driveTime > localTime;
+}
+
+// Extrait l'id du premier fichier trouvé dans une réponse de recherche Drive,
+// ou null si aucun fichier ne correspond.
+function pickDriveFileId(searchResult) {
+  if (searchResult && Array.isArray(searchResult.files) && searchResult.files.length > 0) {
+    return searchResult.files[0].id;
+  }
+  return null;
+}
+
 // ── Export UMD : window.* dans le navigateur, module.exports sous Node/Jest ──
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -134,5 +167,6 @@ if (typeof module !== 'undefined' && module.exports) {
     getCatColor, getGrpForCat, migrateCategorie,
     fmt, fmtDate, uid,
     isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel,
+    isTokenValid, isValidDriveBackup, isDriveDataNewer, pickDriveFileId,
   };
 }
