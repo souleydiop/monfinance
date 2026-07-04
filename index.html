@@ -2157,8 +2157,9 @@ async function saveToDrive() {
         { headers: { Authorization: `Bearer ${driveAccessToken}` } }
       );
       const searchData = await searchRes.json();
-      if (searchData.files && searchData.files.length > 0) {
-        driveFileId = searchData.files[0].id;
+      const foundId = pickDriveFileId(searchData);
+      if (foundId) {
+        driveFileId = foundId;
         localStorage.setItem('drive_file_id', driveFileId);
       }
     }
@@ -2208,13 +2209,14 @@ async function loadFromDrive() {
         { headers: { Authorization: `Bearer ${driveAccessToken}` } }
       );
       const searchData = await searchRes.json();
-      if (!searchData.files || searchData.files.length === 0) {
+      const foundId = pickDriveFileId(searchData);
+      if (!foundId) {
         updateDriveStatus('connected', 'Aucune donnée Drive');
         // First time - save current data
         await saveToDrive();
         return;
       }
-      driveFileId = searchData.files[0].id;
+      driveFileId = foundId;
       localStorage.setItem('drive_file_id', driveFileId);
     }
 
@@ -2224,12 +2226,9 @@ async function loadFromDrive() {
     );
     const driveData = await res.json();
 
-    if (driveData && driveData.bancaire) {
+    if (isValidDriveBackup(driveData)) {
       // Merge: use Drive data if more recent
-      const driveTime = driveData.savedAt ? new Date(driveData.savedAt) : new Date(0);
-      const localTime = localStorage.getItem('mf_last_save') ? new Date(localStorage.getItem('mf_last_save')) : new Date(0);
-
-      if (driveTime > localTime) {
+      if (isDriveDataNewer(driveData.savedAt, localStorage.getItem('mf_last_save'))) {
         appData = driveData;
         delete appData.savedAt;
         saveData();
@@ -2280,12 +2279,13 @@ async function confirmRestoreFromDrive() {
         { headers: { Authorization: `Bearer ${driveAccessToken}` } }
       );
       const searchData = await searchRes.json();
-      if (!searchData.files || searchData.files.length === 0) {
+      const foundId = pickDriveFileId(searchData);
+      if (!foundId) {
         updateDriveStatus('connected', 'Aucune sauvegarde Drive');
         showToast('⚠️ Aucune sauvegarde trouvée sur Drive');
         return;
       }
-      idToUse = searchData.files[0].id;
+      idToUse = foundId;
       driveFileId = idToUse;
       localStorage.setItem('drive_file_id', driveFileId);
     }
@@ -2294,7 +2294,7 @@ async function confirmRestoreFromDrive() {
       { headers: { Authorization: `Bearer ${driveAccessToken}` } }
     );
     const driveData = await res.json();
-    if (driveData && driveData.bancaire) {
+    if (isValidDriveBackup(driveData)) {
       appData = driveData;
       delete appData.savedAt;
       saveData();
@@ -2341,7 +2341,7 @@ function restoreDriveSession() {
   const token = localStorage.getItem('drive_token');
   const fileId = localStorage.getItem('drive_file_id');
   const expiry = parseInt(localStorage.getItem('drive_token_expiry') || '0', 10);
-  if (token && expiry && Date.now() < expiry) {
+  if (isTokenValid(token, expiry)) {
     driveAccessToken = token;
     if (fileId) driveFileId = fileId;
     updateDriveStatus('connected', 'Drive connecté ✓');

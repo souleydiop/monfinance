@@ -4,7 +4,7 @@
 // Cache-first + Offline + Background Sync + Periodic Sync + Push + Widgets
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION   = '3.3.0';
+const APP_VERSION   = '3.4.0';
 const STATIC_CACHE  = `finance-static-v${APP_VERSION}`;
 const DATA_CACHE    = `finance-data-v${APP_VERSION}`;
 const SYNC_TAG      = 'sync-transactions';
