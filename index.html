@@ -132,16 +132,16 @@
     .pin-dot.filled { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 14px rgba(34,211,238,0.5); }
     .pin-dot.error { background: var(--red); border-color: var(--red); box-shadow: 0 0 14px rgba(248,113,113,0.5); }
     .pin-error { color: var(--red); font-size: 13px; font-weight: 600; margin-bottom: 16px; min-height: 20px; text-align: center; }
-    .pin-keypad { display: grid; grid-template-columns: repeat(3, 74px); gap: 14px; }
+    .pin-keypad { display: grid; grid-template-columns: repeat(3, 60px); gap: 12px; }
     .pin-key {
-      width: 74px; height: 74px; border-radius: 18px;
+      width: 60px; height: 60px; border-radius: 16px;
       background: rgba(255,255,255,0.05); border: 1px solid var(--border);
-      color: var(--text); font-size: 24px; font-family: var(--mono); font-weight: 700;
+      color: var(--text); font-size: 19px; font-family: var(--mono); font-weight: 700;
       transition: all 0.15s ease; display: flex; align-items: center; justify-content: center;
     }
     .pin-key:hover { background: rgba(34,211,238,0.15); }
     .pin-key:active { transform: scale(0.92); background: rgba(34,211,238,0.28); }
-    .pin-key.del { font-size: 20px; color: var(--text2); }
+    .pin-key.del { font-size: 16px; color: var(--text2); }
     .pin-key.empty { background: transparent; border: none; pointer-events: none; }
     .pin-hint { margin-top: 44px; font-size: 11px; color: var(--text4); text-align: center; }
     .pin-hint span { font-family: var(--mono); color: var(--text3); }
@@ -426,7 +426,6 @@
     <div class="pin-logo fadeUp">
       <span class="emoji">💰</span>
       <div class="title">FINANCE</div>
-      <div class="sub">Podor · Dakar · Kaolack</div>
     </div>
     <div class="pin-dots fadeUp2" id="pin-dots">
       <div class="pin-dot" id="dot-0"></div>
