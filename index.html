@@ -421,12 +421,6 @@
   <!-- Offline bar -->
   <div id="offline-bar">📡 Mode hors ligne — données locales disponibles</div>
 
-  <!-- Update banner -->
-  <div id="update-banner">
-    🔄 Nouvelle version disponible
-    <button onclick="applyUpdate()">Mettre à jour</button>
-  </div>
-
   <!-- PIN Screen -->
   <div id="pin-screen">
     <div class="pin-logo fadeUp">
@@ -486,9 +480,9 @@
         <span class="nav-icon">◈</span>
         <span class="nav-label">Tableau</span>
       </button>
-      <button class="nav-btn" id="nav-revenus" onclick="switchTab('revenus')">
-        <span class="nav-icon">↑</span>
-        <span class="nav-label">Revenus</span>
+      <button class="nav-btn" id="nav-operations" onclick="switchTab('operations')">
+        <span class="nav-icon">🔁</span>
+        <span class="nav-label">Opérations</span>
       </button>
       <button class="nav-btn" id="nav-depenses" onclick="switchTab('depenses')">
         <span class="nav-icon">↓</span>
@@ -542,6 +536,11 @@ const CATS_DEP_GROUPED = {
   'Aide':    ['Aide'],
   'Facture': ['Facture'],
   'Loyer':   ['Loyer'],
+  'Alimentation': ['Alimentation'],
+  'Transport':    ['Transport'],
+  'Entretien':    ['Entretien'],
+  'Loisir':       ['Loisir'],
+  'Resto':        ['Resto'],
 };
 const CATS_DEP_FLAT = Object.values(CATS_DEP_GROUPED).flat();
 
@@ -555,6 +554,11 @@ const GRP_COLORS = {
   'Aide':'#f472b6',
   'Facture':'#facc15',
   'Loyer':'#22d3ee',
+  'Alimentation':'#4ade80',
+  'Transport':'#38bdf8',
+  'Entretien':'#f97316',
+  'Loisir':'#e879f9',
+  'Resto':'#fbbf24',
 };
 const REV_COLORS = {Emploi:'#22d3ee',Freelance:'#a78bfa',Immobilier:'#34d399',Remboursement:'#4ade80',Autre:'#94a3b8'};
 const BANK_COLORS = {Salaire:'#22d3ee',Agios:'#f87171',Assurance:'#fb923c','Épargne':'#a78bfa','Échéance prêt':'#f472b6','Retrait app web':'#facc15','Retrait GAB':'#fbbf24',Virement:'#34d399'};
@@ -572,6 +576,54 @@ function getGrpForCat(cat) {
   return 'Autre';
 }
 
+// ── Migration des anciennes catégories composées (ex: "Maison riz", "Aide mère Ndeye") ──
+// vers les catégories propres/plates utilisées par les filtres et les couleurs,
+// en réaffectant vers les nouvelles familles (Alimentation, Transport, Entretien, Loisir, Resto)
+// quand c'est pertinent.
+const CATEGORY_MIGRATION_RULES = [
+  { cat:'Alimentation', kws:['aliment','riz','marché','marche','courses','nourriture','epicerie','épicerie','legume','légume','fruit','poisson','viande','boisson'] },
+  { cat:'Transport',    kws:['transport','essence','carburant','taxi','moto','voiture','bus','gasoil','gas-oil','clando','car rapide'] },
+  { cat:'Entretien',    kws:['entretien','réparation','reparation','plomberie','ménage','menage','nettoyage','bricolage'] },
+  { cat:'Loisir',       kws:['loisir','sport','cinema','cinéma','sortie','vacances','fete','fête'] },
+  { cat:'Resto',        kws:['resto','restaurant','café ','cafe ','fast food','fastfood'] },
+  { cat:'École',        kws:['école','ecole','scolar','scolaire'] },
+  { cat:'Service',      kws:['service','bonne','domestique','ménagère','menagere'] },
+  { cat:'Aide',         kws:['aide','soutien'] },
+  { cat:'Facture',      kws:['facture','woyofal','senelec','sde','électricité','electricite','internet','téléphone','telephone'] },
+  { cat:'Loyer',        kws:['loyer'] },
+  { cat:'Maison',       kws:['maison','logement'] },
+];
+
+function migrateCategorie(oldCat, label) {
+  const raw = (oldCat || '').trim();
+  // Déjà une catégorie propre → on ne touche à rien
+  if (CATS_DEP_FLAT.includes(raw)) return raw;
+
+  const text = (raw + ' ' + (label || '')).toLowerCase();
+  for (const { cat, kws } of CATEGORY_MIGRATION_RULES) {
+    if (kws.some(k => text.includes(k))) return cat;
+  }
+  // Dernier recours : le premier mot de l'ancienne catégorie correspond peut-être à un groupe existant
+  const firstWord = raw.split(' ')[0];
+  if (CATS_DEP_FLAT.includes(firstWord)) return firstWord;
+
+  return 'Maison';
+}
+
+function migrateData() {
+  if (appData._catMigration >= 1) return;
+  let changed = 0;
+  (appData.depenses || []).forEach(item => {
+    const migrated = migrateCategorie(item.categorie, item.label);
+    if (migrated !== item.categorie) { item.categorie = migrated; changed++; }
+  });
+  appData._catMigration = 1;
+  if (changed > 0) {
+    saveData();
+    console.log(`[Migration] ${changed} dépense(s) réaffectée(s) vers les nouvelles catégories`);
+  }
+}
+
 // Default data
 const DEFAULT_DATA = {
   revenus: [
@@ -579,12 +631,12 @@ const DEFAULT_DATA = {
     {id:2,label:'Loyer VDN perçu',montant:120000,date:'2026-05-05',categorie:'Immobilier'},
   ],
   depenses: [
-    {id:1,label:'Courses marché',montant:35000,date:'2026-05-02',categorie:'Maison riz'},
-    {id:2,label:'Frais scolarité Blossom',montant:95000,date:'2026-05-03',categorie:'École Blossom'},
-    {id:3,label:'Salaire bonne',montant:40000,date:'2026-05-04',categorie:'Service bonne'},
-    {id:4,label:'Loyer appartement VDN',montant:180000,date:'2026-05-05',categorie:'Loyer VDN'},
-    {id:5,label:'Woyofal recharge DKR',montant:15000,date:'2026-05-10',categorie:'Facture Woyofal DKR'},
-    {id:6,label:'Aide maman',montant:50000,date:'2026-05-12',categorie:'Aide mère Ndeye'},
+    {id:1,label:'Courses marché',montant:35000,date:'2026-05-02',categorie:'Alimentation'},
+    {id:2,label:'Frais scolarité Blossom',montant:95000,date:'2026-05-03',categorie:'École'},
+    {id:3,label:'Salaire bonne',montant:40000,date:'2026-05-04',categorie:'Service'},
+    {id:4,label:'Loyer appartement VDN',montant:180000,date:'2026-05-05',categorie:'Loyer'},
+    {id:5,label:'Woyofal recharge DKR',montant:15000,date:'2026-05-10',categorie:'Facture'},
+    {id:6,label:'Aide maman',montant:50000,date:'2026-05-12',categorie:'Aide'},
   ],
   bancaire: [
     {id:1,type:'Salaire',montant:650000,date:'2026-05-01',sens:'credit',agence:'CBAO Dakar',note:'Virement employeur'},
@@ -603,7 +655,6 @@ let pinDigits = [];
 let currentTab = 'dashboard';
 let openCatGroup = null;
 let deferredPrompt = null;
-let waitingWorker = null;
 let activeFilterDep = 'Tous';
 let activeFilterBank = 'Tous';
 
@@ -617,6 +668,7 @@ function saveData() {
   localStorage.setItem('mf_data', JSON.stringify(appData));
 }
 let appData = loadData();
+migrateData();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -624,6 +676,11 @@ let appData = loadData();
 const fmt = n => new Intl.NumberFormat('fr-SN',{style:'currency',currency:'XOF',maximumFractionDigits:0}).format(n);
 const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'});
 const uid = () => Date.now() + Math.random().toString(36).slice(2);
+function isCurrentMonth(dateStr) {
+  const d = new Date(dateStr+'T00:00:00');
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
 
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -677,7 +734,7 @@ function unlock() {
   // Handle URL params for shortcuts
   const params = new URLSearchParams(location.search);
   if (params.get('action') === 'depense') { switchTab('depenses'); setTimeout(() => openModal('depense'), 300); }
-  else if (params.get('action') === 'revenu') { switchTab('revenus'); setTimeout(() => openModal('revenu'), 300); }
+  else if (params.get('action') === 'revenu') { switchTab('operations'); setTimeout(() => openModal('bancaire'), 300); }
   else switchTab('dashboard');
   setTimeout(updateHeaderSolde, 100);
 }
@@ -728,7 +785,7 @@ function render() {
   c.innerHTML = '';
   c.className = '';
   if (currentTab === 'dashboard') renderDashboard(c);
-  else if (currentTab === 'revenus') renderRevenus(c);
+  else if (currentTab === 'operations') renderOperations(c);
   else if (currentTab === 'depenses') renderDepenses(c);
   else if (currentTab === 'bancaire') renderBancaire(c);
   else if (currentTab === 'charts') renderCharts(c);
@@ -737,18 +794,20 @@ function render() {
 
 // ─── DASHBOARD INTELLIGENT ────────────────────────────────────────────────────
 function renderDashboard(c) {
-  const credits = appData.bancaire.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
-  const debits  = appData.bancaire.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const bancaireMonth = appData.bancaire.filter(x=>isCurrentMonth(x.date));
+  const depensesMonth = appData.depenses.filter(x=>isCurrentMonth(x.date));
+  const credits = bancaireMonth.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const debits  = bancaireMonth.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde   = credits - debits;
   const pos     = solde >= 0;
-  const depTotal = appData.depenses.reduce((s,x)=>s+x.montant,0);
+  const depTotal = depensesMonth.reduce((s,x)=>s+x.montant,0);
 
   // ── SOLDE PRINCIPAL ──────────────────────────────────────────────────────
   const soldeCard = el('div',{className:'solde-card',style:`background:linear-gradient(135deg,${pos?'#0891b2':'#be185d'},${pos?'#164e63':'#831843'});box-shadow:0 20px 50px ${pos?'rgba(8,145,178,.3)':'rgba(190,24,93,.3)'}`});
   soldeCard.innerHTML = `
-    <div class="solde-label">SOLDE BANCAIRE NET</div>
+    <div class="solde-label">SOLDE BANCAIRE NET · MOIS EN COURS</div>
     <div class="solde-amount">${pos?'+':''}${fmt(solde)}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:6px">${appData.bancaire.length} opérations · ${fmtDate(today())}</div>`;
+    <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:6px">${bancaireMonth.length} opérations · ${fmtDate(today())}</div>`;
   c.appendChild(soldeCard);
 
   // ── SCORING DÉPENSES ─────────────────────────────────────────────────────
@@ -833,8 +892,8 @@ function renderDashboard(c) {
 
   // ── STATS GRID ───────────────────────────────────────────────────────────
   const grid = el('div',{className:'stats-grid'});
-  [{l:'Crédits',v:credits,col:'#22d3ee',ic:'↑',n:appData.bancaire.filter(x=>x.sens==='credit').length},
-   {l:'Débits', v:debits, col:'#f472b6',ic:'↓',n:appData.bancaire.filter(x=>x.sens==='debit').length}].forEach(({l,v,col,ic,n}) => {
+  [{l:'Crédits',v:credits,col:'#22d3ee',ic:'↑',n:bancaireMonth.filter(x=>x.sens==='credit').length},
+   {l:'Débits', v:debits, col:'#f472b6',ic:'↓',n:bancaireMonth.filter(x=>x.sens==='debit').length}].forEach(({l,v,col,ic,n}) => {
     const card = el('div',{className:'stat-card',style:`background:${col}11;border:1px solid ${col}33`});
     card.innerHTML = `<div class="stat-icon">${ic}</div><div class="stat-label">${l}</div><div class="stat-value" style="color:${col}">${fmt(v)}</div><div class="stat-count">${n} opération${n>1?'s':''}</div>`;
     grid.appendChild(card);
@@ -844,12 +903,12 @@ function renderDashboard(c) {
   // ── DÉPENSES PAR FAMILLE ─────────────────────────────────────────────────
   if (depTotal > 0) {
     const byFam = {};
-    appData.depenses.forEach(d => {
+    depensesMonth.forEach(d => {
       byFam[d.categorie] = (byFam[d.categorie]||0) + d.montant;
     });
     const maxF = Math.max(...Object.values(byFam),1);
     const famCard = el('div',{className:'card'});
-    famCard.innerHTML = `<div class="card-title">💸 DÉPENSES PAR FAMILLE</div><div style="font-family:var(--mono);font-size:13px;color:var(--pink);font-weight:700;margin-bottom:12px">Total : ${fmt(depTotal)}</div>`;
+    famCard.innerHTML = `<div class="card-title">💸 DÉPENSES PAR FAMILLE · MOIS EN COURS</div><div style="font-family:var(--mono);font-size:13px;color:var(--pink);font-weight:700;margin-bottom:12px">Total : ${fmt(depTotal)}</div>`;
     Object.entries(byFam).sort((a,b)=>b[1]-a[1]).forEach(([cat,val]) => {
       const col = GRP_COLORS[cat]||'#94a3b8';
       const pct = (val/depTotal*100).toFixed(0);
@@ -862,13 +921,13 @@ function renderDashboard(c) {
 
   // ── DÉBITS PAR TYPE ──────────────────────────────────────────────────────
   const byType = {};
-  appData.bancaire.filter(x=>x.sens==='debit').forEach(d => {
+  bancaireMonth.filter(x=>x.sens==='debit').forEach(d => {
     byType[d.type] = (byType[d.type]||0) + d.montant;
   });
   const maxT = Math.max(...Object.values(byType),1);
   if (Object.keys(byType).length > 0) {
     const bcard = el('div',{className:'card'});
-    bcard.innerHTML = '<div class="card-title">🏦 DÉBITS BANCAIRES PAR TYPE</div>';
+    bcard.innerHTML = '<div class="card-title">🏦 DÉBITS BANCAIRES PAR TYPE · MOIS EN COURS</div>';
     Object.entries(byType).sort((a,b)=>b[1]-a[1]).forEach(([type,val]) => {
       const col = BANK_COLORS[type]||'#94a3b8';
       const row = el('div',{className:'bar-row'});
@@ -921,44 +980,48 @@ function renderDashboard(c) {
   }
 }
 
-// ─── REVENUS ──────────────────────────────────────────────────────────────────
-function renderRevenus(c) {
-  const total = appData.revenus.reduce((s,x)=>s+x.montant,0);
+// ─── OPÉRATIONS (toutes les opérations banque du mois, style dépense) ────────
+function renderOperations(c) {
+  const monthOps = appData.bancaire.filter(x=>isCurrentMonth(x.date));
+  const totalC = monthOps.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const totalD = monthOps.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+
   const header = el('div',{className:'page-header'});
-  header.innerHTML = `<div><div class="page-total-label">TOTAL REVENUS</div><div class="page-total-value" style="color:var(--cyan)">${fmt(total)}</div></div>`;
-  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#22d3ee,#0891b2)'});
+  header.innerHTML = `<div><div class="page-total-label">OPÉRATIONS DU MOIS</div><div class="page-total-value" style="color:var(--pink)">${fmt(totalD)}</div><div style="font-size:11px;color:var(--text3);margin-top:3px">Crédits : <span style="color:var(--cyan);font-family:var(--mono)">${fmt(totalC)}</span></div></div>`;
+  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5)'});
   btn.textContent = '+ Ajouter';
-  btn.onclick = () => openModal('revenu');
+  btn.onclick = () => openModal('bancaire');
   header.appendChild(btn);
   c.appendChild(header);
 
-  [...appData.revenus].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(item => {
-    const col = REV_COLORS[item.categorie]||'#94a3b8';
-    const row = el('div',{className:'item-row',style:`background:rgba(34,211,238,.04);border:1px solid rgba(34,211,238,.1)`});
+  [...monthOps].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(item => {
+    const isC = item.sens === 'credit';
+    const col = isC ? '#22d3ee' : '#f472b6';
+    const row = el('div',{className:'item-row',style:`background:${col}0a;border:1px solid ${col}22`});
     row.innerHTML = `
       <div class="item-header">
         <div style="flex:1;min-width:0">
-          <div class="item-title">${esc(item.label)}</div>
-          <div class="item-date">${fmtDate(item.date)}</div>
-          <span class="badge" style="background:${col}22;color:${col}">${esc(item.categorie)}</span>
+          <div class="item-title">${esc(item.type)}${item.note?' — '+esc(item.note):''}</div>
+          <div class="item-date">${fmtDate(item.date)} · 🏦 ${esc(item.agence)}</div>
+          <span class="badge" style="background:${col}22;color:${col}">${isC?'Crédit':'Débit'}</span>
         </div>
         <div style="text-align:right;margin-left:10px">
-          <div class="item-amount" style="color:var(--cyan)">+${fmt(item.montant)}</div>
-          <button class="item-del" data-section="revenus" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
+          <div class="item-amount" style="color:${col}">${isC?'+':'-'}${fmt(item.montant)}</div>
+          <button class="item-del" data-section="bancaire" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
     c.appendChild(row);
   });
-  if (appData.revenus.length === 0) c.appendChild(emptyState('Aucun revenu enregistré'));
+  if (monthOps.length === 0) c.appendChild(emptyState('Aucune opération ce mois-ci'));
 }
 
 // ─── DÉPENSES ─────────────────────────────────────────────────────────────────
 function renderDepenses(c) {
-  const all = appData.depenses;
+  const all = appData.depenses.filter(x=>isCurrentMonth(x.date));
   const total = all.reduce((s,x)=>s+x.montant,0);
 
   const header = el('div',{className:'page-header'});
-  header.innerHTML = `<div><div class="page-total-label">TOTAL DÉPENSES</div><div class="page-total-value" style="color:var(--pink)">${fmt(total)}</div></div>`;
+  header.innerHTML = `<div><div class="page-total-label">DÉPENSES DU MOIS</div><div class="page-total-value" style="color:var(--pink)">${fmt(total)}</div></div>`;
   const btnWrap2 = el('div',{style:'display:flex;gap:8px'});
   const btnExpD = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#059669,#047857);font-size:12px;padding:10px 12px'});
   btnExpD.textContent = '📊 Excel';
@@ -1013,14 +1076,15 @@ function renderDepenses(c) {
 
 // ─── BANCAIRE — Journal avec solde cumulé ────────────────────────────────────
 function renderBancaire(c) {
-  const credits = appData.bancaire.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
-  const debits = appData.bancaire.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const monthAll = appData.bancaire.filter(x=>isCurrentMonth(x.date));
+  const credits = monthAll.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const debits = monthAll.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde = credits - debits;
 
   // Summary
   const sum = el('div',{className:'summary-card'});
   sum.innerHTML = `
-    <div class="card-title">RÉSUMÉ COMPTE BANCAIRE</div>
+    <div class="card-title">RÉSUMÉ COMPTE BANCAIRE · MOIS EN COURS</div>
     <div class="summary-grid">
       <div class="summary-item"><div class="s-label">Crédits</div><div class="s-value" style="color:var(--cyan)">${fmt(credits)}</div></div>
       <div class="summary-item"><div class="s-label">Débits</div><div class="s-value" style="color:var(--pink)">${fmt(debits)}</div></div>
@@ -1029,7 +1093,7 @@ function renderBancaire(c) {
   c.appendChild(sum);
 
   const topRow = el('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'});
-  topRow.innerHTML = `<div class="section-title" style="margin:0">${appData.bancaire.length} OPÉRATION${appData.bancaire.length>1?'S':''}</div>`;
+  topRow.innerHTML = `<div class="section-title" style="margin:0">${monthAll.length} OPÉRATION${monthAll.length>1?'S':''} CE MOIS</div>`;
   const btnWrap = el('div',{style:'display:flex;gap:8px'});
   const btnExp = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#059669,#047857);font-size:12px;padding:10px 12px'});
   btnExp.textContent = '📊 Excel';
@@ -1052,7 +1116,7 @@ function renderBancaire(c) {
   });
   c.appendChild(scroll);
 
-  const filtered = activeFilterBank === 'Tous' ? appData.bancaire : appData.bancaire.filter(x=>x.type===activeFilterBank);
+  const filtered = activeFilterBank === 'Tous' ? monthAll : monthAll.filter(x=>x.type===activeFilterBank);
 
   // Calcul solde cumulé — trié par date ASC pour le calcul, affiché DESC
   const sorted_asc = [...filtered].sort((a,b)=>new Date(a.date)-new Date(b.date));
@@ -1561,46 +1625,50 @@ function emptyState(msg) {
 // PWA — Service Worker Registration
 // ═══════════════════════════════════════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
+  let refreshing = false;
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js', { scope: './' })
       .then(reg => {
         console.log('[App] SW registered:', reg.scope);
 
-        // Check for update
+        // New SW version found — activate it as soon as it finishes installing, no click needed
         reg.addEventListener('updatefound', () => {
-          waitingWorker = reg.installing;
-          waitingWorker.addEventListener('statechange', () => {
-            if (waitingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              document.getElementById('update-banner').classList.add('show');
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showToast('🔄 Mise à jour de l\'application...');
+              newWorker.postMessage({ type: 'SKIP_WAITING' });
             }
           });
         });
 
-        // Already waiting update
+        // An old SW was left waiting (e.g. from a previous session) — activate it immediately
         if (reg.waiting) {
-          waitingWorker = reg.waiting;
-          document.getElementById('update-banner').classList.add('show');
+          showToast('🔄 Mise à jour de l\'application...');
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
+
+        // Re-check for a newer sw.js periodically while the app stays open
+        setInterval(() => reg.update().catch(()=>{}), 60 * 60 * 1000);
       })
       .catch(err => console.warn('[App] SW registration failed:', err));
 
-    // Reload on SW controller change
+    // Reload automatically as soon as the new SW takes control
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
       window.location.reload();
     });
 
-    // Handle RELOAD message from new SW
+    // Fallback: reload on explicit RELOAD message from the SW
     navigator.serviceWorker.addEventListener('message', e => {
-      if (e.data && e.data.type === 'RELOAD') window.location.reload();
+      if (e.data && e.data.type === 'RELOAD' && !refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
     });
   });
-}
-
-function applyUpdate() {
-  if (waitingWorker) {
-    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-  }
-  document.getElementById('update-banner').classList.remove('show');
 }
 
 // ── PWA Install Prompt ────────────────────────────────────────────────────────
@@ -1789,14 +1857,20 @@ function openExportModal() {
     </div>
     <div style="border-top:1px solid var(--border);margin:16px 0 12px"></div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-align:center">SYNCHRONISATION GOOGLE DRIVE</div>
-    <div style="display:flex;gap:8px;margin-bottom:14px">
+    <div style="display:flex;gap:8px;margin-bottom:8px">
       <button onclick="connectDrive();document.getElementById('modal-container').innerHTML=''" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(66,133,244,.15);border:1px solid rgba(66,133,244,.3);border-radius:12px;padding:11px;color:#4285f4;font-weight:700;font-size:13px;cursor:pointer">
-        <img src="https://www.google.com/favicon.ico" width="16" height="16" style="border-radius:3px"/> Connecter Drive
+        <img src="https://www.google.com/favicon.ico" width="16" height="16" style="border-radius:3px"/> Connecter
       </button>
       <button onclick="saveToDrive();document.getElementById('modal-container').innerHTML=''" style="flex:1;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);border-radius:12px;padding:11px;color:var(--green);font-weight:700;font-size:13px;cursor:pointer">
         ☁️ Sauvegarder
       </button>
     </div>
+    <div style="margin-bottom:14px">
+      <button onclick="restoreFromDrive()" style="width:100%;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.3);border-radius:12px;padding:11px;color:var(--orange);font-weight:700;font-size:13px;cursor:pointer">
+        ⬇️ Restaurer depuis la dernière sauvegarde Drive
+      </button>
+    </div>
+    <div style="font-size:10px;color:var(--text4);text-align:center;margin-bottom:14px">Une sauvegarde automatique est envoyée sur Drive à chaque modification (avec un court délai) et au minimum une fois par jour.</div>
     <button onclick="document.getElementById('modal-container').innerHTML=''" style="width:100%;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Fermer</button>`;
   overlay.appendChild(box);
   mc.appendChild(overlay);
@@ -2156,6 +2230,72 @@ async function loadFromDrive() {
   } catch(e) {
     console.error('Drive load error:', e);
     updateDriveStatus('error', 'Erreur chargement');
+  }
+}
+
+// ── Restore from last Drive backup (manual, forces overwrite) ────────────────
+function restoreFromDrive() {
+  if (!driveAccessToken) { showToast('⚠️ Connectez Drive d\'abord'); return; }
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div', { className: 'modal-overlay center' });
+  overlay.onclick = e => { if(e.target===overlay) mc.innerHTML=''; };
+  const box = el('div', { className: 'modal-box center' });
+  box.style.cssText = 'border-radius:24px;max-width:340px;padding:24px;text-align:center';
+  box.innerHTML = `
+    <div style="font-size:40px;margin-bottom:12px">⬇️</div>
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px">Restaurer depuis Drive ?</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:20px">Ceci va remplacer vos données locales actuelles par la dernière sauvegarde trouvée sur Google Drive. Action irréversible.</div>
+    <div style="display:flex;gap:10px">
+      <button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Annuler</button>
+      <button onclick="confirmRestoreFromDrive()" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#fb923c,#c2410c);border:none;color:white;font-weight:700;font-size:14px">Restaurer</button>
+    </div>`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+}
+
+async function confirmRestoreFromDrive() {
+  document.getElementById('modal-container').innerHTML = '';
+  if (!driveAccessToken) return;
+  updateDriveStatus('syncing', 'Restauration...');
+  try {
+    const fileId = driveFileId || localStorage.getItem('drive_file_id');
+    let idToUse = fileId;
+    if (!idToUse) {
+      const searchRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${DRIVE_FILE_NAME}'`,
+        { headers: { Authorization: `Bearer ${driveAccessToken}` } }
+      );
+      const searchData = await searchRes.json();
+      if (!searchData.files || searchData.files.length === 0) {
+        updateDriveStatus('connected', 'Aucune sauvegarde Drive');
+        showToast('⚠️ Aucune sauvegarde trouvée sur Drive');
+        return;
+      }
+      idToUse = searchData.files[0].id;
+      driveFileId = idToUse;
+      localStorage.setItem('drive_file_id', driveFileId);
+    }
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${idToUse}?alt=media`,
+      { headers: { Authorization: `Bearer ${driveAccessToken}` } }
+    );
+    const driveData = await res.json();
+    if (driveData && driveData.bancaire) {
+      appData = driveData;
+      delete appData.savedAt;
+      saveData();
+      renderCurrent();
+      updateDriveStatus('connected', 'Restauré ✓');
+      showToast('✅ Données restaurées depuis Drive');
+    } else {
+      updateDriveStatus('error', 'Données invalides');
+      showToast('❌ Sauvegarde Drive invalide');
+    }
+  } catch(e) {
+    console.error('Drive restore error:', e);
+    updateDriveStatus('error', 'Erreur restauration');
+    showToast('❌ Erreur lors de la restauration');
   }
 }
 
