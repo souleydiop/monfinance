@@ -8,6 +8,10 @@ const {
   fmtPeriodLabel,
   fmt,
   CATS_DEP_FLAT,
+  isTokenValid,
+  isValidDriveBackup,
+  isDriveDataNewer,
+  pickDriveFileId,
 } = require('../assets/utils.js');
 
 describe('migrateCategorie', () => {
@@ -111,5 +115,62 @@ describe('fmt', () => {
   test('formate un montant en FCFA sans décimales', () => {
     expect(fmt(650000)).toContain('650');
     expect(fmt(0)).toBeDefined();
+  });
+});
+
+describe('isTokenValid (Drive)', () => {
+  const now = new Date('2026-07-04T12:00:00Z').getTime();
+
+  test('valide si le token existe et que l\'expiration est future', () => {
+    expect(isTokenValid('abc123', now + 60_000, now)).toBe(true);
+  });
+  test('invalide si le token a expiré', () => {
+    expect(isTokenValid('abc123', now - 1, now)).toBe(false);
+  });
+  test('invalide si le token est absent', () => {
+    expect(isTokenValid(null, now + 60_000, now)).toBe(false);
+  });
+  test('invalide si aucune expiration n\'a été enregistrée (ancien format)', () => {
+    expect(isTokenValid('abc123', 0, now)).toBe(false);
+    expect(isTokenValid('abc123', null, now)).toBe(false);
+  });
+});
+
+describe('isValidDriveBackup', () => {
+  test('valide si la sauvegarde contient un tableau bancaire', () => {
+    expect(isValidDriveBackup({ bancaire: [], depenses: [] })).toBe(true);
+    expect(isValidDriveBackup({ bancaire: [{ id: 1 }] })).toBe(true);
+  });
+  test('invalide si bancaire est absent, non-tableau, ou si data est vide/null', () => {
+    expect(isValidDriveBackup({})).toBe(false);
+    expect(isValidDriveBackup({ bancaire: 'oops' })).toBe(false);
+    expect(isValidDriveBackup(null)).toBe(false);
+    expect(isValidDriveBackup(undefined)).toBe(false);
+  });
+});
+
+describe('isDriveDataNewer', () => {
+  test('vrai si la sauvegarde Drive est plus récente que la sauvegarde locale', () => {
+    expect(isDriveDataNewer('2026-07-04T10:00:00Z', '2026-07-03T10:00:00Z')).toBe(true);
+  });
+  test('faux si la sauvegarde locale est plus récente', () => {
+    expect(isDriveDataNewer('2026-07-01T10:00:00Z', '2026-07-04T10:00:00Z')).toBe(false);
+  });
+  test('traite une date manquante comme la plus ancienne possible', () => {
+    expect(isDriveDataNewer(null, '2026-07-04T10:00:00Z')).toBe(false);
+    expect(isDriveDataNewer('2026-07-04T10:00:00Z', null)).toBe(true);
+    expect(isDriveDataNewer(null, null)).toBe(false);
+  });
+});
+
+describe('pickDriveFileId', () => {
+  test('retourne l\'id du premier fichier trouvé', () => {
+    expect(pickDriveFileId({ files: [{ id: 'file-1' }, { id: 'file-2' }] })).toBe('file-1');
+  });
+  test('retourne null si aucun fichier, réponse vide ou malformée', () => {
+    expect(pickDriveFileId({ files: [] })).toBeNull();
+    expect(pickDriveFileId({})).toBeNull();
+    expect(pickDriveFileId(null)).toBeNull();
+    expect(pickDriveFileId({ files: 'oops' })).toBeNull();
   });
 });
