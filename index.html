@@ -657,6 +657,7 @@ let openCatGroup = null;
 let deferredPrompt = null;
 let activeFilterDep = 'Tous';
 let activeFilterBank = 'Tous';
+let activeFilterOps = 'Tous';
 
 function loadData() {
   try {
@@ -680,6 +681,36 @@ function isCurrentMonth(dateStr) {
   const d = new Date(dateStr+'T00:00:00');
   const now = new Date();
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+
+// ── Période de 30 jours ancrée sur le dernier virement de salaire ────────────
+function getSalaryPeriod() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const salaryDates = appData.bancaire
+    .filter(x => x.type === 'Salaire' && x.sens === 'credit')
+    .map(x => new Date(x.date+'T00:00:00'))
+    .sort((a,b) => b-a);
+
+  let start;
+  if (salaryDates.length === 0) {
+    // Pas de salaire enregistré → repli sur le mois calendaire en cours
+    start = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else {
+    start = salaryDates.find(d => d <= today) || salaryDates[salaryDates.length-1];
+  }
+  const end = new Date(start);
+  end.setDate(end.getDate() + 29); // fenêtre de 30 jours (jour 0 à jour 29)
+  return { start, end };
+}
+function isInSalaryPeriod(dateStr) {
+  const { start, end } = getSalaryPeriod();
+  const d = new Date(dateStr+'T00:00:00');
+  return d >= start && d <= end;
+}
+function fmtPeriodLabel() {
+  const { start, end } = getSalaryPeriod();
+  const f = d => d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'});
+  return `${f(start)} → ${f(end)}`;
 }
 
 function showToast(msg) {
@@ -794,8 +825,8 @@ function render() {
 
 // ─── DASHBOARD INTELLIGENT ────────────────────────────────────────────────────
 function renderDashboard(c) {
-  const bancaireMonth = appData.bancaire.filter(x=>isCurrentMonth(x.date));
-  const depensesMonth = appData.depenses.filter(x=>isCurrentMonth(x.date));
+  const bancaireMonth = appData.bancaire.filter(x=>isInSalaryPeriod(x.date));
+  const depensesMonth = appData.depenses.filter(x=>isInSalaryPeriod(x.date));
   const credits = bancaireMonth.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
   const debits  = bancaireMonth.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde   = credits - debits;
@@ -805,7 +836,7 @@ function renderDashboard(c) {
   // ── SOLDE PRINCIPAL ──────────────────────────────────────────────────────
   const soldeCard = el('div',{className:'solde-card',style:`background:linear-gradient(135deg,${pos?'#0891b2':'#be185d'},${pos?'#164e63':'#831843'});box-shadow:0 20px 50px ${pos?'rgba(8,145,178,.3)':'rgba(190,24,93,.3)'}`});
   soldeCard.innerHTML = `
-    <div class="solde-label">SOLDE BANCAIRE NET · MOIS EN COURS</div>
+    <div class="solde-label">SOLDE BANCAIRE NET · ${fmtPeriodLabel()}</div>
     <div class="solde-amount">${pos?'+':''}${fmt(solde)}</div>
     <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:6px">${bancaireMonth.length} opérations · ${fmtDate(today())}</div>`;
   c.appendChild(soldeCard);
@@ -908,7 +939,7 @@ function renderDashboard(c) {
     });
     const maxF = Math.max(...Object.values(byFam),1);
     const famCard = el('div',{className:'card'});
-    famCard.innerHTML = `<div class="card-title">💸 DÉPENSES PAR FAMILLE · MOIS EN COURS</div><div style="font-family:var(--mono);font-size:13px;color:var(--pink);font-weight:700;margin-bottom:12px">Total : ${fmt(depTotal)}</div>`;
+    famCard.innerHTML = `<div class="card-title">💸 DÉPENSES PAR FAMILLE · ${fmtPeriodLabel()}</div><div style="font-family:var(--mono);font-size:13px;color:var(--pink);font-weight:700;margin-bottom:12px">Total : ${fmt(depTotal)}</div>`;
     Object.entries(byFam).sort((a,b)=>b[1]-a[1]).forEach(([cat,val]) => {
       const col = GRP_COLORS[cat]||'#94a3b8';
       const pct = (val/depTotal*100).toFixed(0);
@@ -927,7 +958,7 @@ function renderDashboard(c) {
   const maxT = Math.max(...Object.values(byType),1);
   if (Object.keys(byType).length > 0) {
     const bcard = el('div',{className:'card'});
-    bcard.innerHTML = '<div class="card-title">🏦 DÉBITS BANCAIRES PAR TYPE · MOIS EN COURS</div>';
+    bcard.innerHTML = `<div class="card-title">🏦 DÉBITS BANCAIRES PAR TYPE · ${fmtPeriodLabel()}</div>`;
     Object.entries(byType).sort((a,b)=>b[1]-a[1]).forEach(([type,val]) => {
       const col = BANK_COLORS[type]||'#94a3b8';
       const row = el('div',{className:'bar-row'});
@@ -980,48 +1011,90 @@ function renderDashboard(c) {
   }
 }
 
-// ─── OPÉRATIONS (toutes les opérations banque du mois, style dépense) ────────
+// ─── OPÉRATIONS (journal continu banque + dépenses, avec filtre) ────────────
 function renderOperations(c) {
-  const monthOps = appData.bancaire.filter(x=>isCurrentMonth(x.date));
-  const totalC = monthOps.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
-  const totalD = monthOps.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const bankOps = appData.bancaire.map(x => ({
+    id: x.id, section: 'bancaire', date: x.date,
+    title: x.type + (x.note ? ' — ' + x.note : ''),
+    meta: '🏦 ' + x.agence,
+    montant: x.montant, sens: x.sens, isDep: false,
+  }));
+  const depOps = appData.depenses.map(x => ({
+    id: x.id, section: 'depenses', date: x.date,
+    title: x.label,
+    meta: esc(x.categorie),
+    montant: x.montant, sens: 'debit', isDep: true,
+  }));
+  const all = [...bankOps, ...depOps].sort((a,b) => new Date(b.date) - new Date(a.date));
+
+  const totalCredit = bankOps.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const totalDebitBanque = bankOps.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const totalDep = depOps.reduce((s,x)=>s+x.montant,0);
 
   const header = el('div',{className:'page-header'});
-  header.innerHTML = `<div><div class="page-total-label">OPÉRATIONS DU MOIS</div><div class="page-total-value" style="color:var(--pink)">${fmt(totalD)}</div><div style="font-size:11px;color:var(--text3);margin-top:3px">Crédits : <span style="color:var(--cyan);font-family:var(--mono)">${fmt(totalC)}</span></div></div>`;
-  const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5)'});
-  btn.textContent = '+ Ajouter';
-  btn.onclick = () => openModal('bancaire');
-  header.appendChild(btn);
+  header.innerHTML = `<div><div class="page-total-label">JOURNAL DES OPÉRATIONS</div><div class="page-total-value" style="color:var(--pink)">${fmt(totalDebitBanque + totalDep)}</div><div style="font-size:11px;color:var(--text3);margin-top:3px">Crédits banque : <span style="color:var(--cyan);font-family:var(--mono)">${fmt(totalCredit)}</span></div></div>`;
+  const btnWrap = el('div',{style:'display:flex;flex-direction:column;gap:6px'});
+  const btnB = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5);font-size:12px;padding:9px 12px'});
+  btnB.textContent = '+ Banque';
+  btnB.onclick = () => openModal('bancaire');
+  const btnD = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#f472b6,#be185d);font-size:12px;padding:9px 12px'});
+  btnD.textContent = '+ Dépense';
+  btnD.onclick = () => openModal('depense');
+  btnWrap.appendChild(btnB);
+  btnWrap.appendChild(btnD);
+  header.appendChild(btnWrap);
   c.appendChild(header);
 
-  [...monthOps].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(item => {
-    const isC = item.sens === 'credit';
-    const col = isC ? '#22d3ee' : '#f472b6';
+  // Filtre
+  const scroll = el('div',{className:'filter-scroll'});
+  ['Tous','Crédit','Débit banque','Dépense'].forEach(f => {
+    const chip = el('button',{className:'filter-chip'+(activeFilterOps===f?' active':'')});
+    chip.textContent = f;
+    chip.onclick = () => { activeFilterOps = f; render(); };
+    scroll.appendChild(chip);
+  });
+  c.appendChild(scroll);
+
+  let filtered = all;
+  if (activeFilterOps === 'Crédit') filtered = all.filter(x => !x.isDep && x.sens === 'credit');
+  else if (activeFilterOps === 'Débit banque') filtered = all.filter(x => !x.isDep && x.sens === 'debit');
+  else if (activeFilterOps === 'Dépense') filtered = all.filter(x => x.isDep);
+
+  if (activeFilterOps !== 'Tous') {
+    const subTotal = filtered.reduce((s,x)=>s+x.montant,0);
+    const st = el('div',{style:'font-size:12px;color:var(--text3);margin-bottom:10px'});
+    st.innerHTML = `Sous-total : <span style="font-family:var(--mono);font-weight:700">${fmt(subTotal)}</span>`;
+    c.appendChild(st);
+  }
+
+  filtered.forEach(item => {
+    const isC = !item.isDep && item.sens === 'credit';
+    const col = item.isDep ? '#fb923c' : (isC ? '#22d3ee' : '#f472b6');
     const row = el('div',{className:'item-row',style:`background:${col}0a;border:1px solid ${col}22`});
     row.innerHTML = `
       <div class="item-header">
         <div style="flex:1;min-width:0">
-          <div class="item-title">${esc(item.type)}${item.note?' — '+esc(item.note):''}</div>
-          <div class="item-date">${fmtDate(item.date)} · 🏦 ${esc(item.agence)}</div>
-          <span class="badge" style="background:${col}22;color:${col}">${isC?'Crédit':'Débit'}</span>
+          <div class="item-title">${esc(item.title)}</div>
+          <div class="item-date">${fmtDate(item.date)} · ${item.meta}</div>
+          <span class="badge" style="background:${col}22;color:${col}">${item.isDep?'Dépense':(isC?'Crédit':'Débit')}</span>
         </div>
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:${col}">${isC?'+':'-'}${fmt(item.montant)}</div>
-          <button class="item-del" data-section="bancaire" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
+          <button class="item-del" data-section="${item.section}" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
     c.appendChild(row);
   });
-  if (monthOps.length === 0) c.appendChild(emptyState('Aucune opération ce mois-ci'));
+  if (filtered.length === 0) c.appendChild(emptyState('Aucune opération'));
 }
 
 // ─── DÉPENSES ─────────────────────────────────────────────────────────────────
 function renderDepenses(c) {
-  const all = appData.depenses.filter(x=>isCurrentMonth(x.date));
+  const all = appData.depenses.filter(x=>isInSalaryPeriod(x.date));
   const total = all.reduce((s,x)=>s+x.montant,0);
 
   const header = el('div',{className:'page-header'});
-  header.innerHTML = `<div><div class="page-total-label">DÉPENSES DU MOIS</div><div class="page-total-value" style="color:var(--pink)">${fmt(total)}</div></div>`;
+  header.innerHTML = `<div><div class="page-total-label">DÉPENSES · ${fmtPeriodLabel()}</div><div class="page-total-value" style="color:var(--pink)">${fmt(total)}</div></div>`;
   const btnWrap2 = el('div',{style:'display:flex;gap:8px'});
   const btnExpD = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#059669,#047857);font-size:12px;padding:10px 12px'});
   btnExpD.textContent = '📊 Excel';
@@ -1076,7 +1149,7 @@ function renderDepenses(c) {
 
 // ─── BANCAIRE — Journal avec solde cumulé ────────────────────────────────────
 function renderBancaire(c) {
-  const monthAll = appData.bancaire.filter(x=>isCurrentMonth(x.date));
+  const monthAll = appData.bancaire.filter(x=>isInSalaryPeriod(x.date));
   const credits = monthAll.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
   const debits = monthAll.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde = credits - debits;
@@ -1084,7 +1157,7 @@ function renderBancaire(c) {
   // Summary
   const sum = el('div',{className:'summary-card'});
   sum.innerHTML = `
-    <div class="card-title">RÉSUMÉ COMPTE BANCAIRE · MOIS EN COURS</div>
+    <div class="card-title">RÉSUMÉ COMPTE BANCAIRE · ${fmtPeriodLabel()}</div>
     <div class="summary-grid">
       <div class="summary-item"><div class="s-label">Crédits</div><div class="s-value" style="color:var(--cyan)">${fmt(credits)}</div></div>
       <div class="summary-item"><div class="s-label">Débits</div><div class="s-value" style="color:var(--pink)">${fmt(debits)}</div></div>
@@ -1093,7 +1166,7 @@ function renderBancaire(c) {
   c.appendChild(sum);
 
   const topRow = el('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'});
-  topRow.innerHTML = `<div class="section-title" style="margin:0">${monthAll.length} OPÉRATION${monthAll.length>1?'S':''} CE MOIS</div>`;
+  topRow.innerHTML = `<div class="section-title" style="margin:0">${monthAll.length} OPÉRATION${monthAll.length>1?'S':''} · ${fmtPeriodLabel()}</div>`;
   const btnWrap = el('div',{style:'display:flex;gap:8px'});
   const btnExp = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#059669,#047857);font-size:12px;padding:10px 12px'});
   btnExp.textContent = '📊 Excel';
