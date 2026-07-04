@@ -658,6 +658,8 @@ let deferredPrompt = null;
 let activeFilterDep = 'Tous';
 let activeFilterBank = 'Tous';
 let activeFilterOps = 'Tous';
+let activeFilterOpsMonth = 'Tous';
+let activeFilterOpsYear = 'Tous';
 
 function loadData() {
   try {
@@ -1027,25 +1029,37 @@ function renderOperations(c) {
   }));
   const all = [...bankOps, ...depOps].sort((a,b) => new Date(b.date) - new Date(a.date));
 
-  const totalCredit = bankOps.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
-  const totalDebitBanque = bankOps.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
-  const totalDep = depOps.reduce((s,x)=>s+x.montant,0);
+  // Filtre mois / année (appliqué avant le calcul des totaux affichés en haut)
+  const yearsAvailable = [...new Set(all.map(x => new Date(x.date+'T00:00:00').getFullYear()))].sort((a,b)=>b-a);
+  let periodOps = all;
+  if (activeFilterOpsMonth !== 'Tous') periodOps = periodOps.filter(x => new Date(x.date+'T00:00:00').getMonth() === activeFilterOpsMonth);
+  if (activeFilterOpsYear !== 'Tous') periodOps = periodOps.filter(x => new Date(x.date+'T00:00:00').getFullYear() === activeFilterOpsYear);
+
+  const totalCredit = periodOps.filter(x=>!x.isDep && x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const totalDebitBanque = periodOps.filter(x=>!x.isDep && x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const totalDep = periodOps.filter(x=>x.isDep).reduce((s,x)=>s+x.montant,0);
 
   const header = el('div',{className:'page-header'});
   header.innerHTML = `<div><div class="page-total-label">JOURNAL DES OPÉRATIONS</div><div class="page-total-value" style="color:var(--pink)">${fmt(totalDebitBanque + totalDep)}</div><div style="font-size:11px;color:var(--text3);margin-top:3px">Crédits banque : <span style="color:var(--cyan);font-family:var(--mono)">${fmt(totalCredit)}</span></div></div>`;
-  const btnWrap = el('div',{style:'display:flex;flex-direction:column;gap:6px'});
-  const btnB = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5);font-size:12px;padding:9px 12px'});
-  btnB.textContent = '+ Banque';
-  btnB.onclick = () => openModal('bancaire');
-  const btnD = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#f472b6,#be185d);font-size:12px;padding:9px 12px'});
-  btnD.textContent = '+ Dépense';
-  btnD.onclick = () => openModal('depense');
-  btnWrap.appendChild(btnB);
-  btnWrap.appendChild(btnD);
-  header.appendChild(btnWrap);
+
+  const moisNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const selWrap = el('div',{style:'display:flex;flex-direction:column;gap:6px'});
+  const selMois = el('select',{className:'form-select',style:'margin-bottom:0;padding:8px 10px;font-size:12px;width:auto'});
+  selMois.innerHTML = '<option value="Tous">Tous les mois</option>' +
+    moisNames.map((m,i)=>`<option value="${i}">${m}</option>`).join('');
+  selMois.value = activeFilterOpsMonth;
+  selMois.onchange = e => { activeFilterOpsMonth = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
+  const selAnnee = el('select',{className:'form-select',style:'margin-bottom:0;padding:8px 10px;font-size:12px;width:auto'});
+  selAnnee.innerHTML = '<option value="Tous">Toutes années</option>' +
+    yearsAvailable.map(y=>`<option value="${y}">${y}</option>`).join('');
+  selAnnee.value = activeFilterOpsYear;
+  selAnnee.onchange = e => { activeFilterOpsYear = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
+  selWrap.appendChild(selMois);
+  selWrap.appendChild(selAnnee);
+  header.appendChild(selWrap);
   c.appendChild(header);
 
-  // Filtre
+  // Filtre type
   const scroll = el('div',{className:'filter-scroll'});
   ['Tous','Crédit','Débit banque','Dépense'].forEach(f => {
     const chip = el('button',{className:'filter-chip'+(activeFilterOps===f?' active':'')});
@@ -1055,10 +1069,10 @@ function renderOperations(c) {
   });
   c.appendChild(scroll);
 
-  let filtered = all;
-  if (activeFilterOps === 'Crédit') filtered = all.filter(x => !x.isDep && x.sens === 'credit');
-  else if (activeFilterOps === 'Débit banque') filtered = all.filter(x => !x.isDep && x.sens === 'debit');
-  else if (activeFilterOps === 'Dépense') filtered = all.filter(x => x.isDep);
+  let filtered = periodOps;
+  if (activeFilterOps === 'Crédit') filtered = periodOps.filter(x => !x.isDep && x.sens === 'credit');
+  else if (activeFilterOps === 'Débit banque') filtered = periodOps.filter(x => !x.isDep && x.sens === 'debit');
+  else if (activeFilterOps === 'Dépense') filtered = periodOps.filter(x => x.isDep);
 
   if (activeFilterOps !== 'Tous') {
     const subTotal = filtered.reduce((s,x)=>s+x.montant,0);
