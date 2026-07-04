@@ -520,6 +520,7 @@
   <div id="modal-container"></div>
 </div>
 
+<script src="./assets/utils.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATA & CONSTANTS
@@ -528,86 +529,8 @@ const CORRECT_PIN = '1234';
 
 const CATS_REV = ['Emploi', 'Freelance', 'Immobilier', 'Remboursement', 'Autre'];
 
-const CATS_DEP_GROUPED = {
-  'Maison':  ['Maison'],
-  'École':   ['École'],
-  'Service': ['Service'],
-  'Aide':    ['Aide'],
-  'Facture': ['Facture'],
-  'Loyer':   ['Loyer'],
-  'Alimentation': ['Alimentation'],
-  'Transport':    ['Transport'],
-  'Entretien':    ['Entretien'],
-  'Loisir':       ['Loisir'],
-  'Resto':        ['Resto'],
-};
-const CATS_DEP_FLAT = Object.values(CATS_DEP_GROUPED).flat();
-
-const TYPES_BANCAIRE = ['Salaire','Agios','Assurance','Épargne','Échéance prêt','Retrait app web','Retrait GAB','Virement'];
-const AGENCES = ['CBAO Dakar','CBAO Kaolack','BIS Dakar','BIS Kaolack','Ecobank Dakar','Ecobank Kaolack','UBA Dakar','Wave','Orange Money','Autre'];
-
-const GRP_COLORS = {
-  'Maison':'#fb923c',
-  'École':'#a78bfa',
-  'Service':'#34d399',
-  'Aide':'#f472b6',
-  'Facture':'#facc15',
-  'Loyer':'#22d3ee',
-  'Alimentation':'#4ade80',
-  'Transport':'#38bdf8',
-  'Entretien':'#f97316',
-  'Loisir':'#e879f9',
-  'Resto':'#fbbf24',
-};
 const REV_COLORS = {Emploi:'#22d3ee',Freelance:'#a78bfa',Immobilier:'#34d399',Remboursement:'#4ade80',Autre:'#94a3b8'};
 const BANK_COLORS = {Salaire:'#22d3ee',Agios:'#f87171',Assurance:'#fb923c','Épargne':'#a78bfa','Échéance prêt':'#f472b6','Retrait app web':'#facc15','Retrait GAB':'#fbbf24',Virement:'#34d399'};
-
-function getCatColor(cat) {
-  for (const [grp, cats] of Object.entries(CATS_DEP_GROUPED)) {
-    if (cats.includes(cat)) return GRP_COLORS[grp];
-  }
-  return '#64748b';
-}
-function getGrpForCat(cat) {
-  for (const [grp, cats] of Object.entries(CATS_DEP_GROUPED)) {
-    if (cats.includes(cat)) return grp;
-  }
-  return 'Autre';
-}
-
-// ── Migration des anciennes catégories composées (ex: "Maison riz", "Aide mère Ndeye") ──
-// vers les catégories propres/plates utilisées par les filtres et les couleurs,
-// en réaffectant vers les nouvelles familles (Alimentation, Transport, Entretien, Loisir, Resto)
-// quand c'est pertinent.
-const CATEGORY_MIGRATION_RULES = [
-  { cat:'Alimentation', kws:['aliment','riz','marché','marche','courses','nourriture','epicerie','épicerie','legume','légume','fruit','poisson','viande','boisson'] },
-  { cat:'Transport',    kws:['transport','essence','carburant','taxi','moto','voiture','bus','gasoil','gas-oil','clando','car rapide'] },
-  { cat:'Entretien',    kws:['entretien','réparation','reparation','plomberie','ménage','menage','nettoyage','bricolage'] },
-  { cat:'Loisir',       kws:['loisir','sport','cinema','cinéma','sortie','vacances','fete','fête'] },
-  { cat:'Resto',        kws:['resto','restaurant','café ','cafe ','fast food','fastfood'] },
-  { cat:'École',        kws:['école','ecole','scolar','scolaire'] },
-  { cat:'Service',      kws:['service','bonne','domestique','ménagère','menagere'] },
-  { cat:'Aide',         kws:['aide','soutien'] },
-  { cat:'Facture',      kws:['facture','woyofal','senelec','sde','électricité','electricite','internet','téléphone','telephone'] },
-  { cat:'Loyer',        kws:['loyer'] },
-  { cat:'Maison',       kws:['maison','logement'] },
-];
-
-function migrateCategorie(oldCat, label) {
-  const raw = (oldCat || '').trim();
-  // Déjà une catégorie propre → on ne touche à rien
-  if (CATS_DEP_FLAT.includes(raw)) return raw;
-
-  const text = (raw + ' ' + (label || '')).toLowerCase();
-  for (const { cat, kws } of CATEGORY_MIGRATION_RULES) {
-    if (kws.some(k => text.includes(k))) return cat;
-  }
-  // Dernier recours : le premier mot de l'ancienne catégorie correspond peut-être à un groupe existant
-  const firstWord = raw.split(' ')[0];
-  if (CATS_DEP_FLAT.includes(firstWord)) return firstWord;
-
-  return 'Maison';
-}
 
 function migrateData() {
   if (appData._catMigration >= 1) return;
@@ -675,44 +598,8 @@ migrateData();
 // ═══════════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
-const fmt = n => new Intl.NumberFormat('fr-SN',{style:'currency',currency:'XOF',maximumFractionDigits:0}).format(n);
-const fmtDate = d => new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'});
-const uid = () => Date.now() + Math.random().toString(36).slice(2);
-function isCurrentMonth(dateStr) {
-  const d = new Date(dateStr+'T00:00:00');
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-}
-
-// ── Période de 30 jours ancrée sur le dernier virement de salaire ────────────
-function getSalaryPeriod() {
-  const today = new Date(); today.setHours(0,0,0,0);
-  const salaryDates = appData.bancaire
-    .filter(x => x.type === 'Salaire' && x.sens === 'credit')
-    .map(x => new Date(x.date+'T00:00:00'))
-    .sort((a,b) => b-a);
-
-  let start;
-  if (salaryDates.length === 0) {
-    // Pas de salaire enregistré → repli sur le mois calendaire en cours
-    start = new Date(today.getFullYear(), today.getMonth(), 1);
-  } else {
-    start = salaryDates.find(d => d <= today) || salaryDates[salaryDates.length-1];
-  }
-  const end = new Date(start);
-  end.setDate(end.getDate() + 29); // fenêtre de 30 jours (jour 0 à jour 29)
-  return { start, end };
-}
-function isInSalaryPeriod(dateStr) {
-  const { start, end } = getSalaryPeriod();
-  const d = new Date(dateStr+'T00:00:00');
-  return d >= start && d <= end;
-}
-function fmtPeriodLabel() {
-  const { start, end } = getSalaryPeriod();
-  const f = d => d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'});
-  return `${f(start)} → ${f(end)}`;
-}
+// fmt, fmtDate, uid, isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel
+// sont définis dans assets/utils.js (chargé juste avant ce script).
 
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -826,8 +713,8 @@ function render() {
 
 // ─── DASHBOARD INTELLIGENT ────────────────────────────────────────────────────
 function renderDashboard(c) {
-  const bancaireMonth = appData.bancaire.filter(x=>isInSalaryPeriod(x.date));
-  const depensesMonth = appData.depenses.filter(x=>isInSalaryPeriod(x.date));
+  const bancaireMonth = appData.bancaire.filter(x=>isInSalaryPeriod(x.date, appData.bancaire));
+  const depensesMonth = appData.depenses.filter(x=>isInSalaryPeriod(x.date, appData.bancaire));
   const credits = bancaireMonth.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
   const debits  = bancaireMonth.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde   = credits - debits;
@@ -837,7 +724,7 @@ function renderDashboard(c) {
   // ── SOLDE PRINCIPAL ──────────────────────────────────────────────────────
   const soldeCard = el('div',{className:'solde-card',style:`background:linear-gradient(135deg,${pos?'#0891b2':'#be185d'},${pos?'#164e63':'#831843'});box-shadow:0 20px 50px ${pos?'rgba(8,145,178,.3)':'rgba(190,24,93,.3)'}`});
   soldeCard.innerHTML = `
-    <div class="solde-label">SOLDE BANCAIRE NET · ${fmtPeriodLabel()}</div>
+    <div class="solde-label">SOLDE BANCAIRE NET · ${fmtPeriodLabel(appData.bancaire)}</div>
     <div class="solde-amount">${pos?'+':''}${fmt(solde)}</div>
     <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:6px">${bancaireMonth.length} opérations · ${fmtDate(today())}</div>`;
   c.appendChild(soldeCard);
@@ -940,7 +827,7 @@ function renderDashboard(c) {
     });
     const maxF = Math.max(...Object.values(byFam),1);
     const famCard = el('div',{className:'card'});
-    famCard.innerHTML = `<div class="card-title">💸 DÉPENSES PAR FAMILLE · ${fmtPeriodLabel()}</div><div style="font-family:var(--mono);font-size:13px;color:var(--pink);font-weight:700;margin-bottom:12px">Total : ${fmt(depTotal)}</div>`;
+    famCard.innerHTML = `<div class="card-title">💸 DÉPENSES PAR FAMILLE · ${fmtPeriodLabel(appData.bancaire)}</div><div style="font-family:var(--mono);font-size:13px;color:var(--pink);font-weight:700;margin-bottom:12px">Total : ${fmt(depTotal)}</div>`;
     Object.entries(byFam).sort((a,b)=>b[1]-a[1]).forEach(([cat,val]) => {
       const col = GRP_COLORS[cat]||'#94a3b8';
       const pct = (val/depTotal*100).toFixed(0);
@@ -959,7 +846,7 @@ function renderDashboard(c) {
   const maxT = Math.max(...Object.values(byType),1);
   if (Object.keys(byType).length > 0) {
     const bcard = el('div',{className:'card'});
-    bcard.innerHTML = `<div class="card-title">🏦 DÉBITS BANCAIRES PAR TYPE · ${fmtPeriodLabel()}</div>`;
+    bcard.innerHTML = `<div class="card-title">🏦 DÉBITS BANCAIRES PAR TYPE · ${fmtPeriodLabel(appData.bancaire)}</div>`;
     Object.entries(byType).sort((a,b)=>b[1]-a[1]).forEach(([type,val]) => {
       const col = BANK_COLORS[type]||'#94a3b8';
       const row = el('div',{className:'bar-row'});
@@ -1103,11 +990,11 @@ function renderOperations(c) {
 
 // ─── DÉPENSES ─────────────────────────────────────────────────────────────────
 function renderDepenses(c) {
-  const all = appData.depenses.filter(x=>isInSalaryPeriod(x.date));
+  const all = appData.depenses.filter(x=>isInSalaryPeriod(x.date, appData.bancaire));
   const total = all.reduce((s,x)=>s+x.montant,0);
 
   const header = el('div',{className:'page-header'});
-  header.innerHTML = `<div><div class="page-total-label">DÉPENSES · ${fmtPeriodLabel()}</div><div class="page-total-value" style="color:var(--pink)">${fmt(total)}</div></div>`;
+  header.innerHTML = `<div><div class="page-total-label">DÉPENSES · ${fmtPeriodLabel(appData.bancaire)}</div><div class="page-total-value" style="color:var(--pink)">${fmt(total)}</div></div>`;
   const btnWrap2 = el('div',{style:'display:flex;gap:8px'});
   const btnExpD = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#059669,#047857);font-size:12px;padding:10px 12px'});
   btnExpD.textContent = '📊 Excel';
@@ -1162,7 +1049,7 @@ function renderDepenses(c) {
 
 // ─── BANCAIRE — Journal avec solde cumulé ────────────────────────────────────
 function renderBancaire(c) {
-  const monthAll = appData.bancaire.filter(x=>isInSalaryPeriod(x.date));
+  const monthAll = appData.bancaire.filter(x=>isInSalaryPeriod(x.date, appData.bancaire));
   const credits = monthAll.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
   const debits = monthAll.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde = credits - debits;
@@ -1170,7 +1057,7 @@ function renderBancaire(c) {
   // Summary
   const sum = el('div',{className:'summary-card'});
   sum.innerHTML = `
-    <div class="card-title">RÉSUMÉ COMPTE BANCAIRE · ${fmtPeriodLabel()}</div>
+    <div class="card-title">RÉSUMÉ COMPTE BANCAIRE · ${fmtPeriodLabel(appData.bancaire)}</div>
     <div class="summary-grid">
       <div class="summary-item"><div class="s-label">Crédits</div><div class="s-value" style="color:var(--cyan)">${fmt(credits)}</div></div>
       <div class="summary-item"><div class="s-label">Débits</div><div class="s-value" style="color:var(--pink)">${fmt(debits)}</div></div>
@@ -1179,7 +1066,7 @@ function renderBancaire(c) {
   c.appendChild(sum);
 
   const topRow = el('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px'});
-  topRow.innerHTML = `<div class="section-title" style="margin:0">${monthAll.length} OPÉRATION${monthAll.length>1?'S':''} · ${fmtPeriodLabel()}</div>`;
+  topRow.innerHTML = `<div class="section-title" style="margin:0">${monthAll.length} OPÉRATION${monthAll.length>1?'S':''} · ${fmtPeriodLabel(appData.bancaire)}</div>`;
   const btnWrap = el('div',{style:'display:flex;gap:8px'});
   const btnExp = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#059669,#047857);font-size:12px;padding:10px 12px'});
   btnExp.textContent = '📊 Excel';
