@@ -4,7 +4,7 @@
 // Cache-first + Offline + Background Sync + Periodic Sync + Push + Widgets
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION   = '3.1.0';
+const APP_VERSION   = '3.2.0';
 const STATIC_CACHE  = `finance-static-v${APP_VERSION}`;
 const DATA_CACHE    = `finance-data-v${APP_VERSION}`;
 const SYNC_TAG      = 'sync-transactions';
@@ -72,9 +72,20 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // App shell & assets → cache-first
-  if (['.html','.js','.css','.png','.svg','.json','.ico','.webp','.woff2'].some(ext => url.pathname.endsWith(ext))
-      || url.pathname === '/' || url.pathname.endsWith('/')) {
+  // Document HTML (l'app elle-même) → network-first : on va toujours chercher
+  // la dernière version en ligne d'abord, on ne retombe sur le cache que si
+  // hors-ligne. Ça évite d'afficher une version périmée après une mise à jour.
+  const isHTML = request.mode === 'navigate'
+    || request.destination === 'document'
+    || url.pathname.endsWith('.html')
+    || url.pathname === '/' || url.pathname.endsWith('/');
+  if (isHTML) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  // Autres assets (js, css, images, manifest...) → cache-first + rafraîchi en fond
+  if (['.js','.css','.png','.svg','.json','.ico','.webp','.woff2'].some(ext => url.pathname.endsWith(ext))) {
     event.respondWith(staleWhileRevalidate(request));
     return;
   }
@@ -84,6 +95,18 @@ self.addEventListener('fetch', event => {
 });
 
 // ─── CACHE STRATEGIES ─────────────────────────────────────────────────────────
+async function networkFirst(request) {
+  const cache = await caches.open(STATIC_CACHE);
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+    if (response.ok) cache.put(request, response.clone());
+    return response;
+  } catch {
+    const cached = await cache.match(request);
+    return cached || offlinePage();
+  }
+}
+
 async function cacheFirst(request, cacheName = STATIC_CACHE) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
