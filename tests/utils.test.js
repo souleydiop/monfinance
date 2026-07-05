@@ -136,16 +136,34 @@ describe('isTokenValid (Drive)', () => {
   });
 });
 
-describe('isValidDriveBackup', () => {
-  test('valide si la sauvegarde contient un tableau bancaire', () => {
+describe('isValidDriveBackup (validé avec Zod)', () => {
+  const validBancaireItem = { id: 1, type: 'Salaire', montant: 500000, date: '2026-05-01', sens: 'credit', agence: 'CBAO Dakar' };
+  const validDepenseItem = { id: 2, label: 'Courses marché', montant: 35000, date: '2026-05-02', categorie: 'Alimentation' };
+
+  test('valide si les tableaux bancaire/dépenses sont vides ou bien formés', () => {
     expect(isValidDriveBackup({ bancaire: [], depenses: [] })).toBe(true);
-    expect(isValidDriveBackup({ bancaire: [{ id: 1 }] })).toBe(true);
+    expect(isValidDriveBackup({ bancaire: [validBancaireItem], depenses: [validDepenseItem] })).toBe(true);
   });
-  test('invalide si bancaire est absent, non-tableau, ou si data est vide/null', () => {
-    expect(isValidDriveBackup({})).toBe(false);
-    expect(isValidDriveBackup({ bancaire: 'oops' })).toBe(false);
+  test('invalide si data est vide, nulle ou non-objet', () => {
+    expect(isValidDriveBackup({})).toBe(false); // bancaire/depenses obligatoires : {} n'est pas une sauvegarde valide
     expect(isValidDriveBackup(null)).toBe(false);
     expect(isValidDriveBackup(undefined)).toBe(false);
+    expect(isValidDriveBackup('oops')).toBe(false);
+  });
+  test('invalide si bancaire n\'est pas un tableau', () => {
+    expect(isValidDriveBackup({ bancaire: 'oops' })).toBe(false);
+  });
+  test('invalide si un enregistrement bancaire est incomplet', () => {
+    expect(isValidDriveBackup({ bancaire: [{ id: 1 }] })).toBe(false);
+  });
+  test('invalide si un champ a le mauvais type (ex: montant en texte)', () => {
+    expect(isValidDriveBackup({ bancaire: [{ ...validBancaireItem, montant: '500000' }] })).toBe(false);
+  });
+  test('invalide si "sens" n\'est pas credit/debit', () => {
+    expect(isValidDriveBackup({ bancaire: [{ ...validBancaireItem, sens: 'inconnu' }] })).toBe(false);
+  });
+  test('invalide si un enregistrement dépense est incomplet', () => {
+    expect(isValidDriveBackup({ bancaire: [], depenses: [{ id: 1, montant: 1000 }] })).toBe(false);
   });
 });
 
