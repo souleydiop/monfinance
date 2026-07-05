@@ -1106,15 +1106,19 @@ function renderBancaire(c) {
 
   const filtered = activeFilterBank === 'Tous' ? monthAll : monthAll.filter(x=>x.type===activeFilterBank);
 
-  // Calcul solde cumulé — trié par date ASC pour le calcul, affiché DESC
-  const sorted_asc = [...filtered].sort((a,b)=>new Date(a.date)-new Date(b.date));
+  // Calcul solde cumulé — sur TOUT l'historique (chronologique ASC), pas
+  // seulement la période affichée, pour refléter le vrai solde bancaire actuel
+  // à chaque opération.
+  const sorted_asc_all = [...appData.bancaire].sort((a,b)=>new Date(a.date)-new Date(b.date) || (a.id > b.id ? 1 : -1));
   let running = 0;
-  const withBalance = sorted_asc.map(item => {
+  const balanceById = new Map();
+  sorted_asc_all.forEach(item => {
     running += item.sens==='credit' ? item.montant : -item.montant;
-    return { ...item, _balance: running };
+    balanceById.set(item.id, running);
   });
+  const withBalance = filtered.map(item => ({ ...item, _balance: balanceById.get(item.id) }));
   // Affichage DESC (plus récent en haut)
-  [...withBalance].reverse().forEach(item => {
+  [...withBalance].sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(item => {
     const isC = item.sens === 'credit';
     const col = BANK_COLORS[item.type]||'#94a3b8';
     const balPos = item._balance >= 0;
