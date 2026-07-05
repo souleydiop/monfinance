@@ -722,12 +722,19 @@ function renderDashboard(c) {
   const pos     = solde >= 0;
   const depTotal = depensesMonth.reduce((s,x)=>s+x.montant,0);
 
-  // ── SOLDE PRINCIPAL ──────────────────────────────────────────────────────
-  const soldeCard = el('div',{className:'solde-card',style:`background:linear-gradient(135deg,${pos?'#0891b2':'#be185d'},${pos?'#164e63':'#831843'});box-shadow:0 20px 50px ${pos?'rgba(8,145,178,.3)':'rgba(190,24,93,.3)'}`});
+  // Solde bancaire cumulé (toutes les opérations, depuis le début) — c'est le
+  // vrai solde actuel du compte, indépendant de la période de 30 jours.
+  const allCredits = appData.bancaire.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const allDebits  = appData.bancaire.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const soldeCumule = allCredits - allDebits;
+  const posCumule = soldeCumule >= 0;
+
+  // ── SOLDE PRINCIPAL (cumulé, "solde actuel") ──────────────────────────────
+  const soldeCard = el('div',{className:'solde-card',style:`background:linear-gradient(135deg,${posCumule?'#0891b2':'#be185d'},${posCumule?'#164e63':'#831843'});box-shadow:0 20px 50px ${posCumule?'rgba(8,145,178,.3)':'rgba(190,24,93,.3)'}`});
   soldeCard.innerHTML = `
-    <div class="solde-label">SOLDE BANCAIRE NET · ${fmtPeriodLabel(appData.bancaire)}</div>
-    <div class="solde-amount">${pos?'+':''}${fmt(solde)}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:6px">${bancaireMonth.length} opérations · ${fmtDate(today())}</div>`;
+    <div class="solde-label">SOLDE BANCAIRE ACTUEL</div>
+    <div class="solde-amount">${posCumule?'+':''}${fmt(soldeCumule)}</div>
+    <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:6px">${appData.bancaire.length} opération${appData.bancaire.length>1?'s':''} au total · ${fmtDate(today())}</div>`;
   c.appendChild(soldeCard);
 
   // ── SCORING DÉPENSES ─────────────────────────────────────────────────────
@@ -757,19 +764,23 @@ function renderDashboard(c) {
     </div>`;
   c.appendChild(scoreCard);
 
-  // ── PRÉVISION FIN DE MOIS ────────────────────────────────────────────────
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const dayOfMonth = now.getDate();
-  const daysLeft = daysInMonth - dayOfMonth;
-  const dailyBurn = dayOfMonth > 0 ? debits / dayOfMonth : 0;
+  // ── PRÉVISION FIN DE PÉRIODE ─────────────────────────────────────────────
+  const { start: periodStart, end: periodEnd } = getSalaryPeriod(appData.bancaire);
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  const totalDaysInPeriod = Math.round((periodEnd - periodStart) / 86400000) + 1; // 30
+  const daysElapsed = Math.min(Math.max(Math.round((today0 - periodStart) / 86400000) + 1, 1), totalDaysInPeriod);
+  const daysLeft = Math.max(totalDaysInPeriod - daysElapsed, 0);
+  const dailyBurn = debits / daysElapsed;
   const projectedDebits = debits + (dailyBurn * daysLeft);
-  const projectedSolde = credits - projectedDebits;
+  // Le solde projeté reflète le vrai solde bancaire actuel (cumulé), diminué
+  // des débits encore attendus d'ici la fin de la période — et non un simple
+  // solde net isolé à la période.
+  const projectedSolde = soldeCumule - (dailyBurn * daysLeft);
   const projPos = projectedSolde >= 0;
 
   const prevCard = el('div',{className:'card'});
   prevCard.innerHTML = `
-    <div class="card-title">📅 PRÉVISION FIN DE MOIS</div>
+    <div class="card-title">📅 PRÉVISION FIN DE PÉRIODE</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div style="background:rgba(255,255,255,.03);border-radius:12px;padding:12px;text-align:center">
         <div style="font-size:10px;color:var(--text3);margin-bottom:4px">JOURS RESTANTS</div>
@@ -784,7 +795,7 @@ function renderDashboard(c) {
         <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--pink)">${fmt(projectedDebits)}</div>
       </div>
       <div style="background:rgba(255,255,255,.03);border-radius:12px;padding:12px;text-align:center">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SOLDE PROJETÉ</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">SOLDE ACTUEL PROJETÉ</div>
         <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${projPos?'var(--green)':'var(--red)'}">${fmt(projectedSolde)}</div>
       </div>
     </div>`;
@@ -794,8 +805,8 @@ function renderDashboard(c) {
   const alerts = [];
   if (ratio > 90) alerts.push({ color:'#f87171', icon:'🚨', msg:'Débits critiques — plus de 90% des crédits consommés' });
   else if (ratio > 70) alerts.push({ color:'#fb923c', icon:'⚠️', msg:'Attention — plus de 70% des crédits consommés' });
-  if (projectedSolde < 0) alerts.push({ color:'#f87171', icon:'📉', msg:'Solde négatif projeté en fin de mois' });
-  if (dailyBurn > credits/daysInMonth) alerts.push({ color:'#facc15', icon:'💸', msg:'Rythme de dépenses au-dessus de la moyenne journalière' });
+  if (projectedSolde < 0) alerts.push({ color:'#f87171', icon:'📉', msg:'Solde actuel négatif projeté en fin de période' });
+  if (dailyBurn > credits/totalDaysInPeriod) alerts.push({ color:'#facc15', icon:'💸', msg:'Rythme de dépenses au-dessus de la moyenne journalière' });
   const epargneRate = credits > 0 ? (solde/credits)*100 : 0;
   if (epargneRate < 10 && credits > 0) alerts.push({ color:'#a78bfa', icon:'💡', msg:'Recommandation : épargner au moins 10% des revenus (' + fmt(credits*0.1) + ')' });
 
@@ -810,7 +821,10 @@ function renderDashboard(c) {
     c.appendChild(acard);
   }
 
-  // ── STATS GRID ───────────────────────────────────────────────────────────
+  // ── STATS GRID (période en cours, distinct du solde cumulé ci-dessus) ────
+  const gridCaption = el('div',{style:'font-size:11px;color:var(--text3);margin-bottom:8px'});
+  gridCaption.textContent = `Sur la période en cours (${fmtPeriodLabel(appData.bancaire)}) :`;
+  c.appendChild(gridCaption);
   const grid = el('div',{className:'stats-grid'});
   [{l:'Crédits',v:credits,col:'#22d3ee',ic:'↑',n:bancaireMonth.filter(x=>x.sens==='credit').length},
    {l:'Débits', v:debits, col:'#f472b6',ic:'↓',n:bancaireMonth.filter(x=>x.sens==='debit').length}].forEach(({l,v,col,ic,n}) => {
