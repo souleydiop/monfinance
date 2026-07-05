@@ -127,6 +127,55 @@ function fmtPeriodLabel(bancaire, now = new Date()) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// VALIDATION DE STRUCTURE AVEC ZOD
+// Navigateur : Zod est chargé en global via un <script> CDN (voir index.html) et
+// expose `window.Zod`, qui a la même API que l'espace de nom `z` habituel.
+// Node/Jest : chargé via le paquet npm `zod`.
+// Si Zod n'est disponible ni d'un côté ni de l'autre (ex: CDN bloqué hors-ligne),
+// on retombe sur une vérification plus permissive pour ne pas casser l'app.
+// ═══════════════════════════════════════════════════════════════════════════════
+const _z = (typeof module !== 'undefined' && module.exports)
+  ? (() => { try { return require('zod').z; } catch (e) { return null; } })()
+  : (typeof Zod !== 'undefined' ? Zod : null);
+
+let DepenseSchema = null, BancaireSchema = null, RevenuSchema = null, AppDataSchema = null;
+if (_z) {
+  const idType = _z.union([_z.string(), _z.number()]);
+
+  DepenseSchema = _z.object({
+    id: idType,
+    label: _z.string(),
+    montant: _z.number(),
+    date: _z.string(),
+    categorie: _z.string(),
+  }).passthrough();
+
+  BancaireSchema = _z.object({
+    id: idType,
+    type: _z.string(),
+    montant: _z.number(),
+    date: _z.string(),
+    sens: _z.enum(['credit', 'debit']),
+    agence: _z.string(),
+    note: _z.string().optional(),
+  }).passthrough();
+
+  RevenuSchema = _z.object({
+    id: idType,
+    label: _z.string(),
+    montant: _z.number(),
+    date: _z.string(),
+    categorie: _z.string(),
+  }).passthrough();
+
+  AppDataSchema = _z.object({
+    depenses: _z.array(DepenseSchema),
+    bancaire: _z.array(BancaireSchema),
+    revenus: _z.array(RevenuSchema).optional(),
+  }).passthrough();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // GOOGLE DRIVE — LOGIQUE PURE (testable sans réseau ni DOM)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -136,10 +185,13 @@ function isTokenValid(token, expiry, now = Date.now()) {
   return Boolean(token) && Boolean(expiry) && now < Number(expiry);
 }
 
-// Une sauvegarde Drive est considérée valide si elle contient au moins un tableau
-// `bancaire` exploitable (structure attendue de l'export appData).
+// Une sauvegarde Drive est considérée valide si elle respecte la structure
+// attendue (validée avec Zod : types des champs, enum `sens`, etc.). Si Zod
+// n'a pas pu être chargé, on retombe sur une simple vérification de forme.
 function isValidDriveBackup(data) {
-  return Boolean(data) && Array.isArray(data.bancaire);
+  if (!data || typeof data !== 'object') return false;
+  if (AppDataSchema) return AppDataSchema.safeParse(data).success;
+  return Array.isArray(data.bancaire);
 }
 
 // Détermine si la sauvegarde Drive est plus récente que la dernière sauvegarde
@@ -168,5 +220,6 @@ if (typeof module !== 'undefined' && module.exports) {
     fmt, fmtDate, uid,
     isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel,
     isTokenValid, isValidDriveBackup, isDriveDataNewer, pickDriveFileId,
+    DepenseSchema, BancaireSchema, RevenuSchema, AppDataSchema,
   };
 }
