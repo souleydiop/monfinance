@@ -261,6 +261,8 @@
     .item-amount { font-family: var(--mono); font-weight: 700; font-size: 16px; }
     .item-del { background: none; border: none; color: var(--text4); font-size: 14px; padding: 4px 8px; border-radius: 8px; }
     .item-del:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+    .item-dup { background: none; border: none; color: var(--text4); font-size: 14px; padding: 4px 8px; border-radius: 8px; }
+    .item-dup:hover { color: var(--green); background: rgba(74,222,128,0.1); }
 
     /* Bancaire row */
     .bank-row { border-radius: 16px; padding: 14px 16px; margin-bottom: 10px; }
@@ -930,28 +932,24 @@ function renderOperations(c) {
   }));
   const all = [...bankOps, ...depOps].sort((a,b) => new Date(b.date) - new Date(a.date));
 
-  // Filtre mois / année (appliqué avant le calcul des totaux affichés en haut)
+  // Filtre mois / année
   const yearsAvailable = [...new Set(all.map(x => new Date(x.date+'T00:00:00').getFullYear()))].sort((a,b)=>b-a);
   let periodOps = all;
   if (activeFilterOpsMonth !== 'Tous') periodOps = periodOps.filter(x => new Date(x.date+'T00:00:00').getMonth() === activeFilterOpsMonth);
   if (activeFilterOpsYear !== 'Tous') periodOps = periodOps.filter(x => new Date(x.date+'T00:00:00').getFullYear() === activeFilterOpsYear);
 
-  const totalCredit = periodOps.filter(x=>!x.isDep && x.sens==='credit').reduce((s,x)=>s+x.montant,0);
-  const totalDebitBanque = periodOps.filter(x=>!x.isDep && x.sens==='debit').reduce((s,x)=>s+x.montant,0);
-  const totalDep = periodOps.filter(x=>x.isDep).reduce((s,x)=>s+x.montant,0);
-
   const header = el('div',{className:'page-header'});
-  header.innerHTML = `<div><div class="page-total-label">JOURNAL DES OPÉRATIONS</div><div class="page-total-value" style="color:var(--pink)">${fmt(totalDebitBanque + totalDep)}</div><div style="font-size:11px;color:var(--text3);margin-top:3px">Crédits banque : <span style="color:var(--cyan);font-family:var(--mono)">${fmt(totalCredit)}</span></div></div>`;
+  header.innerHTML = `<div><div class="page-total-label">JOURNAL DES OPÉRATIONS</div></div>`;
 
   const moisNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const selWrap = el('div',{style:'display:flex;flex-direction:column;gap:6px'});
   const selMois = el('select',{className:'form-select',style:'margin-bottom:0;padding:8px 10px;font-size:12px;width:auto'});
-  selMois.innerHTML = '<option value="Tous">Tous les mois</option>' +
+  selMois.innerHTML = '<option value="Tous">Mois</option>' +
     moisNames.map((m,i)=>`<option value="${i}">${m}</option>`).join('');
   selMois.value = activeFilterOpsMonth;
   selMois.onchange = e => { activeFilterOpsMonth = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
   const selAnnee = el('select',{className:'form-select',style:'margin-bottom:0;padding:8px 10px;font-size:12px;width:auto'});
-  selAnnee.innerHTML = '<option value="Tous">Toutes années</option>' +
+  selAnnee.innerHTML = '<option value="Tous">Année</option>' +
     yearsAvailable.map(y=>`<option value="${y}">${y}</option>`).join('');
   selAnnee.value = activeFilterOpsYear;
   selAnnee.onchange = e => { activeFilterOpsYear = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
@@ -962,7 +960,7 @@ function renderOperations(c) {
 
   // Filtre type
   const scroll = el('div',{className:'filter-scroll'});
-  ['Tous','Crédit','Débit banque','Dépense'].forEach(f => {
+  ['Tous','Crédit','Débit','Dépense'].forEach(f => {
     const chip = el('button',{className:'filter-chip'+(activeFilterOps===f?' active':'')});
     chip.textContent = f;
     chip.onclick = () => { activeFilterOps = f; render(); };
@@ -972,15 +970,8 @@ function renderOperations(c) {
 
   let filtered = periodOps;
   if (activeFilterOps === 'Crédit') filtered = periodOps.filter(x => !x.isDep && x.sens === 'credit');
-  else if (activeFilterOps === 'Débit banque') filtered = periodOps.filter(x => !x.isDep && x.sens === 'debit');
+  else if (activeFilterOps === 'Débit') filtered = periodOps.filter(x => !x.isDep && x.sens === 'debit');
   else if (activeFilterOps === 'Dépense') filtered = periodOps.filter(x => x.isDep);
-
-  if (activeFilterOps !== 'Tous') {
-    const subTotal = filtered.reduce((s,x)=>s+x.montant,0);
-    const st = el('div',{style:'font-size:12px;color:var(--text3);margin-bottom:10px'});
-    st.innerHTML = `Sous-total : <span style="font-family:var(--mono);font-weight:700">${fmt(subTotal)}</span>`;
-    c.appendChild(st);
-  }
 
   filtered.forEach(item => {
     const isC = !item.isDep && item.sens === 'credit';
@@ -995,6 +986,7 @@ function renderOperations(c) {
         </div>
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:${col}">${isC?'+':'-'}${fmt(item.montant)}</div>
+          <button class="item-dup" data-section="${item.section}" data-id="${item.id}" onclick="duplicateItem(this.dataset.section,this.dataset.id)" title="Dupliquer">➕</button>
           <button class="item-del" data-section="${item.section}" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
@@ -1137,6 +1129,7 @@ function renderBancaire(c) {
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:${isC?'var(--cyan)':'var(--pink)'}">${isC?'+':'-'}${fmt(item.montant)}</div>
           <div style="font-size:10px;color:${balPos?'#4ade80':'#f87171'};font-family:var(--mono);font-weight:700;margin-top:3px">Solde: ${fmt(item._balance)}</div>
+          <button class="item-dup" data-section="bancaire" data-id="${item.id}" onclick="duplicateItem(this.dataset.section,this.dataset.id)" title="Dupliquer">➕</button>
           <button class="item-del" data-section="bancaire" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
@@ -1590,6 +1583,35 @@ function submitBancaire() {
   };
   appData.bancaire.unshift(newItem);
   saveData(); closeModal(); renderCurrent(); showToast('✅ Opération enregistrée et synchronisée');
+}
+
+// ── Dupliquer une opération existante (cycle mensuel récurrent) ──────────────
+// Pré-remplit le formulaire avec les mêmes infos que la ligne cliquée ; il ne
+// reste plus qu'à ajuster la date pour le nouveau cycle.
+function duplicateItem(section, id) {
+  const list = appData[section] || [];
+  const item = list.find(x => String(x.id) === String(id));
+  if (!item) { showToast('⚠️ Opération introuvable'); return; }
+
+  if (section === 'bancaire') {
+    openModal('bancaire');
+    document.getElementById('b-type').value = item.type;
+    document.getElementById('b-montant').value = item.montant;
+    document.getElementById('b-date').value = item.date;
+    document.getElementById('b-agence').value = item.agence;
+    document.getElementById('b-note').value = item.note || '';
+    setSens(item.sens);
+    showToast('↻ Opération dupliquée — ajustez la date');
+  } else if (section === 'depenses') {
+    openModal('depense');
+    document.getElementById('d-label').value = item.label;
+    document.getElementById('d-montant').value = item.montant;
+    document.getElementById('d-date').value = item.date;
+    // Le sélecteur de catégorie est peuplé un peu après l'ouverture du modal ;
+    // on programme notre sélection juste après pour ne pas se faire écraser.
+    setTimeout(() => buildCatPicker(item.categorie), 20);
+    showToast('↻ Dépense dupliquée — ajustez la date');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
