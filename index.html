@@ -585,6 +585,7 @@ let activeFilterBank = 'Tous';
 let activeFilterOps = 'Tous';
 let activeFilterOpsMonth = 'Tous';
 let activeFilterOpsYear = 'Tous';
+let activeFilterOpsCat = 'Tous';
 
 function loadData() {
   try {
@@ -917,6 +918,71 @@ function renderDashboard(c) {
 }
 
 // ─── OPÉRATIONS (journal continu banque + dépenses, avec filtre) ────────────
+// ── Suggestions de début de cycle ────────────────────────────────────────────
+// Reprend les opérations récurrentes du cycle précédent qui n'ont pas encore
+// leur équivalent dans le cycle en cours, pour proposer de les reconduire.
+function getCycleSuggestions() {
+  const dismissed = appData._dismissedSuggestions || [];
+
+  const prevBank = appData.bancaire.filter(x => isInPreviousSalaryPeriod(x.date, appData.bancaire));
+  const curBank  = appData.bancaire.filter(x => isInSalaryPeriod(x.date, appData.bancaire));
+  const prevDep  = appData.depenses.filter(x => isInPreviousSalaryPeriod(x.date, appData.bancaire));
+  const curDep   = appData.depenses.filter(x => isInSalaryPeriod(x.date, appData.bancaire));
+
+  const bankSuggestions = prevBank
+    .map(p => ({ ...p, _key: `b:${p.type}:${p.agence}:${p.montant}` }))
+    .filter(p => !dismissed.includes(p._key))
+    .filter(p => !curBank.some(c => c.type === p.type && c.agence === p.agence && c.montant === p.montant))
+    .map(p => ({ item: p, kind: 'bancaire', key: p._key }));
+
+  const depSuggestions = prevDep
+    .map(p => ({ ...p, _key: `d:${p.label}:${p.categorie}:${p.montant}` }))
+    .filter(p => !dismissed.includes(p._key))
+    .filter(p => !curDep.some(c => c.label === p.label && c.categorie === p.categorie && c.montant === p.montant))
+    .map(p => ({ item: p, kind: 'depenses', key: p._key }));
+
+  return [...bankSuggestions, ...depSuggestions];
+}
+
+function dismissSuggestion(key) {
+  if (!appData._dismissedSuggestions) appData._dismissedSuggestions = [];
+  if (!appData._dismissedSuggestions.includes(key)) appData._dismissedSuggestions.push(key);
+  saveData();
+  renderCurrent();
+  showToast('Suggestion ignorée');
+}
+
+function renderSuggestions(c, kindFilter) {
+  let suggestions = getCycleSuggestions();
+  if (kindFilter) suggestions = suggestions.filter(s => s.kind === kindFilter);
+  if (suggestions.length === 0) return;
+
+  const box = el('div',{style:'margin-bottom:16px'});
+  box.innerHTML = `<div style="font-size:11px;color:var(--text3);margin-bottom:8px">💡 À reconduire pour ce cycle (${fmtPeriodLabel(appData.bancaire)}) :</div>`;
+  suggestions.forEach(({ item, kind, key }) => {
+    const isBank = kind === 'bancaire';
+    const isC = isBank && item.sens === 'credit';
+    const col = isBank ? (isC ? '#22d3ee' : '#f472b6') : '#fb923c';
+    const title = isBank ? (item.type + (item.note ? ' — ' + item.note : '')) : item.label;
+    const meta = isBank ? ('🏦 ' + item.agence) : esc(item.categorie);
+    const row = el('div',{className:'item-row',style:`background:${col}0a;border:1px dashed ${col}44`});
+    row.innerHTML = `
+      <div class="item-header">
+        <div style="flex:1;min-width:0">
+          <div class="item-title">${esc(title)}</div>
+          <div class="item-date">Dernier cycle : ${fmtDate(item.date)} · ${meta}</div>
+        </div>
+        <div style="text-align:right;margin-left:10px">
+          <div class="item-amount" style="color:${col}">${isBank?(isC?'+':'-'):'-'}${fmt(item.montant)}</div>
+          <button class="item-dup" data-kind="${kind}" data-id="${item.id}" onclick="duplicateItem(this.dataset.kind,this.dataset.id)" title="Confirmer">➕</button>
+          <button class="item-del" data-key="${key}" onclick="dismissSuggestion(this.dataset.key)" title="Ignorer">🗑</button>
+        </div>
+      </div>`;
+    box.appendChild(row);
+  });
+  c.appendChild(box);
+}
+
 function renderOperations(c) {
   const bankOps = appData.bancaire.map(x => ({
     id: x.id, section: 'bancaire', date: x.date,
@@ -928,6 +994,7 @@ function renderOperations(c) {
     id: x.id, section: 'depenses', date: x.date,
     title: x.label,
     meta: esc(x.categorie),
+    categorie: x.categorie,
     montant: x.montant, sens: 'debit', isDep: true,
   }));
   const all = [...bankOps, ...depOps].sort((a,b) => new Date(b.date) - new Date(a.date));
@@ -938,40 +1005,56 @@ function renderOperations(c) {
   if (activeFilterOpsMonth !== 'Tous') periodOps = periodOps.filter(x => new Date(x.date+'T00:00:00').getMonth() === activeFilterOpsMonth);
   if (activeFilterOpsYear !== 'Tous') periodOps = periodOps.filter(x => new Date(x.date+'T00:00:00').getFullYear() === activeFilterOpsYear);
 
-  const header = el('div',{className:'page-header'});
+  const header = el('div',{className:'page-header',style:'margin-top:-8px;margin-bottom:10px'});
   header.innerHTML = `<div><div class="page-total-label">JOURNAL DES OPÉRATIONS</div></div>`;
-
-  const moisNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-  const selWrap = el('div',{style:'display:flex;flex-direction:column;gap:6px'});
-  const selMois = el('select',{className:'form-select',style:'margin-bottom:0;padding:8px 10px;font-size:12px;width:auto'});
-  selMois.innerHTML = '<option value="Tous">Mois</option>' +
-    moisNames.map((m,i)=>`<option value="${i}">${m}</option>`).join('');
-  selMois.value = activeFilterOpsMonth;
-  selMois.onchange = e => { activeFilterOpsMonth = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
-  const selAnnee = el('select',{className:'form-select',style:'margin-bottom:0;padding:8px 10px;font-size:12px;width:auto'});
-  selAnnee.innerHTML = '<option value="Tous">Année</option>' +
-    yearsAvailable.map(y=>`<option value="${y}">${y}</option>`).join('');
-  selAnnee.value = activeFilterOpsYear;
-  selAnnee.onchange = e => { activeFilterOpsYear = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
-  selWrap.appendChild(selMois);
-  selWrap.appendChild(selAnnee);
-  header.appendChild(selWrap);
   c.appendChild(header);
 
-  // Filtre type
-  const scroll = el('div',{className:'filter-scroll'});
+  renderSuggestions(c);
+
+  const selStyle = 'margin-bottom:0;padding:5px 7px;font-size:11px;width:auto;flex-shrink:0';
+
+  // Ligne 1 : filtre type (Tous/Crédit/Débit/Dépense) aligné sur le sélecteur Mois
+  const row1 = el('div',{style:'display:flex;align-items:center;gap:6px;margin-bottom:6px'});
+  const scroll1 = el('div',{className:'filter-scroll',style:'flex:1;min-width:0;margin-bottom:0'});
   ['Tous','Crédit','Débit','Dépense'].forEach(f => {
     const chip = el('button',{className:'filter-chip'+(activeFilterOps===f?' active':'')});
     chip.textContent = f;
     chip.onclick = () => { activeFilterOps = f; render(); };
-    scroll.appendChild(chip);
+    scroll1.appendChild(chip);
   });
-  c.appendChild(scroll);
+  const moisNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const selMois = el('select',{className:'form-select',style:selStyle});
+  selMois.innerHTML = '<option value="Tous">Mois</option>' +
+    moisNames.map((m,i)=>`<option value="${i}">${m}</option>`).join('');
+  selMois.value = activeFilterOpsMonth;
+  selMois.onchange = e => { activeFilterOpsMonth = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
+  row1.appendChild(scroll1);
+  row1.appendChild(selMois);
+  c.appendChild(row1);
+
+  // Ligne 2 : filtre catégorie (dépenses) aligné sur le sélecteur Année
+  const row2 = el('div',{style:'display:flex;align-items:center;gap:6px;margin-bottom:14px'});
+  const scroll2 = el('div',{className:'filter-scroll',style:'flex:1;min-width:0;margin-bottom:0'});
+  ['Tous',...Object.keys(CATS_DEP_GROUPED)].forEach(cat => {
+    const chip = el('button',{className:'filter-chip'+(activeFilterOpsCat===cat?' active':'')});
+    chip.textContent = cat;
+    chip.onclick = () => { activeFilterOpsCat = cat; render(); };
+    scroll2.appendChild(chip);
+  });
+  const selAnnee = el('select',{className:'form-select',style:selStyle});
+  selAnnee.innerHTML = '<option value="Tous">Année</option>' +
+    yearsAvailable.map(y=>`<option value="${y}">${y}</option>`).join('');
+  selAnnee.value = activeFilterOpsYear;
+  selAnnee.onchange = e => { activeFilterOpsYear = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
+  row2.appendChild(scroll2);
+  row2.appendChild(selAnnee);
+  c.appendChild(row2);
 
   let filtered = periodOps;
   if (activeFilterOps === 'Crédit') filtered = periodOps.filter(x => !x.isDep && x.sens === 'credit');
   else if (activeFilterOps === 'Débit') filtered = periodOps.filter(x => !x.isDep && x.sens === 'debit');
   else if (activeFilterOps === 'Dépense') filtered = periodOps.filter(x => x.isDep);
+  if (activeFilterOpsCat !== 'Tous') filtered = filtered.filter(x => x.isDep && x.categorie === activeFilterOpsCat);
 
   filtered.forEach(item => {
     const isC = !item.isDep && item.sens === 'credit';
@@ -1061,6 +1144,8 @@ function renderBancaire(c) {
   const debits = monthAll.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde = credits - debits;
 
+  renderSuggestions(c, 'bancaire');
+
   // Summary
   const sum = el('div',{className:'summary-card'});
   sum.innerHTML = `
@@ -1129,7 +1214,6 @@ function renderBancaire(c) {
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:${isC?'var(--cyan)':'var(--pink)'}">${isC?'+':'-'}${fmt(item.montant)}</div>
           <div style="font-size:10px;color:${balPos?'#4ade80':'#f87171'};font-family:var(--mono);font-weight:700;margin-top:3px">Solde: ${fmt(item._balance)}</div>
-          <button class="item-dup" data-section="bancaire" data-id="${item.id}" onclick="duplicateItem(this.dataset.section,this.dataset.id)" title="Dupliquer">➕</button>
           <button class="item-del" data-section="bancaire" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
