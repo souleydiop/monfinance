@@ -126,6 +126,22 @@ function fmtPeriodLabel(bancaire, now = new Date()) {
   return `${f(start)} → ${f(end)}`;
 }
 
+// Période de 30 jours précédant le cycle courant (pour proposer de reconduire
+// les opérations récurrentes du cycle passé).
+function getPreviousSalaryPeriod(bancaire, now = new Date()) {
+  const { start } = getSalaryPeriod(bancaire, now);
+  const prevEnd = new Date(start);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - 29);
+  return { start: prevStart, end: prevEnd };
+}
+function isInPreviousSalaryPeriod(dateStr, bancaire, now = new Date()) {
+  const { start, end } = getPreviousSalaryPeriod(bancaire, now);
+  const d = new Date(dateStr+'T00:00:00');
+  return d >= start && d <= end;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // VALIDATION DE STRUCTURE AVEC ZOD
 // Navigateur : Zod est chargé en global via un <script> CDN (voir index.html) et
@@ -219,6 +235,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getCatColor, getGrpForCat, migrateCategorie,
     fmt, fmtDate, uid,
     isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel,
+    getPreviousSalaryPeriod, isInPreviousSalaryPeriod,
     isTokenValid, isValidDriveBackup, isDriveDataNewer, pickDriveFileId,
     DepenseSchema, BancaireSchema, RevenuSchema, AppDataSchema,
   };
