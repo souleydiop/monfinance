@@ -707,11 +707,17 @@ function render() {
   const c = document.getElementById('content');
   c.innerHTML = '';
   c.className = '';
-  if (currentTab === 'dashboard') renderDashboard(c);
-  else if (currentTab === 'operations') renderOperations(c);
-  else if (currentTab === 'depenses') renderDepenses(c);
-  else if (currentTab === 'bancaire') renderBancaire(c);
-  else if (currentTab === 'charts') renderCharts(c);
+  try {
+    if (currentTab === 'dashboard') renderDashboard(c);
+    else if (currentTab === 'operations') renderOperations(c);
+    else if (currentTab === 'depenses') renderDepenses(c);
+    else if (currentTab === 'bancaire') renderBancaire(c);
+    else if (currentTab === 'charts') renderCharts(c);
+  } catch (err) {
+    console.error('[Render error]', currentTab, err);
+    c.innerHTML = '';
+    c.appendChild(emptyState('⚠️ Erreur d\'affichage — essayez de recharger l\'app'));
+  }
   c.classList.add('fadeUp');
 }
 
@@ -922,6 +928,14 @@ function renderDashboard(c) {
 // Reprend les opérations récurrentes du cycle précédent qui n'ont pas encore
 // leur équivalent dans le cycle en cours, pour proposer de les reconduire.
 function getCycleSuggestions() {
+  // Garde-fou : si assets/utils.js n'a pas encore les fonctions de période
+  // précédente (déploiement partiel/cache non à jour), on n'affiche juste
+  // pas de suggestions plutôt que de casser tout l'onglet.
+  if (typeof isInPreviousSalaryPeriod !== 'function' || typeof isInSalaryPeriod !== 'function') {
+    console.warn('[Suggestions] assets/utils.js semble périmé (fonctions de période manquantes)');
+    return [];
+  }
+
   const dismissed = appData._dismissedSuggestions || [];
 
   const prevBank = appData.bancaire.filter(x => isInPreviousSalaryPeriod(x.date, appData.bancaire));
@@ -1069,7 +1083,6 @@ function renderOperations(c) {
         </div>
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:${col}">${isC?'+':'-'}${fmt(item.montant)}</div>
-          <button class="item-dup" data-section="${item.section}" data-id="${item.id}" onclick="duplicateItem(this.dataset.section,this.dataset.id)" title="Dupliquer">➕</button>
           <button class="item-del" data-section="${item.section}" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
