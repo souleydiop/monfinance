@@ -1019,49 +1019,47 @@ function renderOperations(c) {
   if (activeFilterOpsMonth !== 'Tous') periodOps = periodOps.filter(x => new Date(x.date+'T00:00:00').getMonth() === activeFilterOpsMonth);
   if (activeFilterOpsYear !== 'Tous') periodOps = periodOps.filter(x => new Date(x.date+'T00:00:00').getFullYear() === activeFilterOpsYear);
 
-  const header = el('div',{className:'page-header',style:'margin-top:-8px;margin-bottom:10px'});
-  header.innerHTML = `<div><div class="page-total-label">JOURNAL DES OPÉRATIONS</div></div>`;
-  c.appendChild(header);
-
-  renderSuggestions(c);
-
+  const moisNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
   const selStyle = 'margin-bottom:0;padding:5px 7px;font-size:11px;width:auto;flex-shrink:0';
 
-  // Ligne 1 : filtre type (Tous/Crédit/Débit/Dépense) aligné sur le sélecteur Mois
-  const row1 = el('div',{style:'display:flex;align-items:center;gap:6px;margin-bottom:6px'});
-  const scroll1 = el('div',{className:'filter-scroll',style:'flex:1;min-width:0;margin-bottom:0'});
-  ['Tous','Crédit','Débit','Dépense'].forEach(f => {
-    const chip = el('button',{className:'filter-chip'+(activeFilterOps===f?' active':'')});
-    chip.textContent = f;
-    chip.onclick = () => { activeFilterOps = f; render(); };
-    scroll1.appendChild(chip);
-  });
-  const moisNames = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const header = el('div',{className:'page-header',style:'margin-top:-8px;margin-bottom:10px;align-items:center'});
+  header.innerHTML = `<div><div class="page-total-label">JOURNAL DES OPÉRATIONS</div></div>`;
+  const headerSels = el('div',{style:'display:flex;gap:6px'});
   const selMois = el('select',{className:'form-select',style:selStyle});
   selMois.innerHTML = '<option value="Tous">Mois</option>' +
     moisNames.map((m,i)=>`<option value="${i}">${m}</option>`).join('');
   selMois.value = activeFilterOpsMonth;
   selMois.onchange = e => { activeFilterOpsMonth = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
-  row1.appendChild(scroll1);
-  row1.appendChild(selMois);
-  c.appendChild(row1);
-
-  // Ligne 2 : filtre catégorie (dépenses) aligné sur le sélecteur Année
-  const row2 = el('div',{style:'display:flex;align-items:center;gap:6px;margin-bottom:14px'});
-  const scroll2 = el('div',{className:'filter-scroll',style:'flex:1;min-width:0;margin-bottom:0'});
-  ['Tous',...Object.keys(CATS_DEP_GROUPED)].forEach(cat => {
-    const chip = el('button',{className:'filter-chip'+(activeFilterOpsCat===cat?' active':'')});
-    chip.textContent = cat;
-    chip.onclick = () => { activeFilterOpsCat = cat; render(); };
-    scroll2.appendChild(chip);
-  });
   const selAnnee = el('select',{className:'form-select',style:selStyle});
   selAnnee.innerHTML = '<option value="Tous">Année</option>' +
     yearsAvailable.map(y=>`<option value="${y}">${y}</option>`).join('');
   selAnnee.value = activeFilterOpsYear;
   selAnnee.onchange = e => { activeFilterOpsYear = e.target.value === 'Tous' ? 'Tous' : parseInt(e.target.value,10); render(); };
-  row2.appendChild(scroll2);
-  row2.appendChild(selAnnee);
+  headerSels.appendChild(selMois);
+  headerSels.appendChild(selAnnee);
+  header.appendChild(headerSels);
+  c.appendChild(header);
+
+  renderSuggestions(c);
+
+  // Ligne 1 : filtre type (Tous/Crédit/Débit/Dépense)
+  const row1 = el('div',{className:'filter-scroll',style:'margin-bottom:6px'});
+  ['Tous','Crédit','Débit','Dépense'].forEach(f => {
+    const chip = el('button',{className:'filter-chip'+(activeFilterOps===f?' active':'')});
+    chip.textContent = f;
+    chip.onclick = () => { activeFilterOps = f; render(); };
+    row1.appendChild(chip);
+  });
+  c.appendChild(row1);
+
+  // Ligne 2 : filtre catégorie (dépenses)
+  const row2 = el('div',{className:'filter-scroll',style:'margin-bottom:14px'});
+  ['Tous',...Object.keys(CATS_DEP_GROUPED)].forEach(cat => {
+    const chip = el('button',{className:'filter-chip'+(activeFilterOpsCat===cat?' active':'')});
+    chip.textContent = cat;
+    chip.onclick = () => { activeFilterOpsCat = cat; render(); };
+    row2.appendChild(chip);
+  });
   c.appendChild(row2);
 
   let filtered = periodOps;
