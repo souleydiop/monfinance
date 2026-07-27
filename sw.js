@@ -4,7 +4,7 @@
 // Cache-first + Offline + Background Sync + Periodic Sync + Push + Widgets
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const APP_VERSION   = '3.8.0';
+const APP_VERSION   = '3.9.0';
 const STATIC_CACHE  = `finance-static-v${APP_VERSION}`;
 const DATA_CACHE    = `finance-data-v${APP_VERSION}`;
 const SYNC_TAG      = 'sync-transactions';
@@ -86,7 +86,17 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Autres assets (js, css, images, manifest...) → cache-first + rafraîchi en fond
+  // Code de l'app elle-même (même origine) → network-first, comme le HTML.
+  // Ces fichiers changent souvent en même temps que index.html ; les mettre en
+  // stale-while-revalidate les faisait rester "un cran derrière" après une
+  // mise à jour (symptôme : une fonctionnalité qui "revient en arrière").
+  const isOwnScript = url.origin === self.location.origin && url.pathname.endsWith('.js');
+  if (isOwnScript) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  // Autres assets tiers (CDN, polices, images, manifest...) → cache-first + rafraîchi en fond
   if (['.js','.css','.png','.svg','.json','.ico','.webp','.woff2'].some(ext => url.pathname.endsWith(ext))) {
     event.respondWith(staleWhileRevalidate(request));
     return;
