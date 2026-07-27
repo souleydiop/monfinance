@@ -468,6 +468,7 @@
       <div style="display:flex;gap:8px;align-items:center">
           <button class="lock-btn" onclick="openImportModal()" style="color:var(--purple);border-color:rgba(124,58,237,.3)">📥<span class="btn-label">Import</span></button>
           <button class="lock-btn" onclick="openExportModal()" style="color:var(--green);border-color:rgba(74,222,128,.3)">📊<span class="btn-label">Export</span></button>
+          <button class="lock-btn" onclick="openFavorisModal()" style="color:var(--yellow);border-color:rgba(250,204,21,.3)">⭐<span class="btn-label">Favoris</span></button>
           <button class="lock-btn" onclick="openResetModal()" style="color:var(--red);border-color:rgba(239,68,68,.3)">🗑<span class="btn-label">Reset</span></button>
           <button class="lock-btn" onclick="lock()">🔒</button>
 
@@ -570,7 +571,8 @@ const DEFAULT_DATA = {
     {id:4,type:'Assurance',montant:22000,date:'2026-05-15',sens:'debit',agence:'CBAO Dakar',note:'Prélèvement auto'},
     {id:5,type:'Épargne',montant:50000,date:'2026-05-15',sens:'debit',agence:'BIS Dakar',note:''},
     {id:6,type:'Échéance prêt',montant:85000,date:'2026-05-20',sens:'debit',agence:'CBAO Dakar',note:'Crédit immobilier'},
-  ]
+  ],
+  favoris: { bancaire: [], depenses: [] },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -586,15 +588,28 @@ let activeFilterOps = 'Tous';
 let activeFilterOpsMonth = 'Tous';
 let activeFilterOpsYear = 'Tous';
 let activeFilterOpsCat = 'Tous';
+let modalSaveTarget = 'real'; // 'real' | 'favori' — cible d'enregistrement du formulaire bancaire/dépense
 
 function loadData() {
+  let data;
   try {
     const saved = localStorage.getItem('mf_data');
-    return saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULT_DATA));
-  } catch { return JSON.parse(JSON.stringify(DEFAULT_DATA)); }
+    data = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULT_DATA));
+  } catch { data = JSON.parse(JSON.stringify(DEFAULT_DATA)); }
+  // Compatibilité : les données sauvegardées avant l'ajout des favoris n'ont pas ce champ
+  if (!data.favoris) data.favoris = { bancaire: [], depenses: [] };
+  if (!Array.isArray(data.favoris.bancaire)) data.favoris.bancaire = [];
+  if (!Array.isArray(data.favoris.depenses)) data.favoris.depenses = [];
+  return data;
 }
 function saveData() {
   localStorage.setItem('mf_data', JSON.stringify(appData));
+}
+function ensureFavoris(data) {
+  if (!data.favoris) data.favoris = { bancaire: [], depenses: [] };
+  if (!Array.isArray(data.favoris.bancaire)) data.favoris.bancaire = [];
+  if (!Array.isArray(data.favoris.depenses)) data.favoris.depenses = [];
+  return data;
 }
 let appData = loadData();
 migrateData();
@@ -929,33 +944,45 @@ function renderDashboard(c) {
 // leur équivalent dans le cycle en cours, pour proposer de les reconduire.
 function getCycleSuggestions() {
   // Garde-fou : si assets/utils.js n'a pas encore les fonctions de période
-  // précédente (déploiement partiel/cache non à jour), on n'affiche juste
-  // pas de suggestions plutôt que de casser tout l'onglet.
-  if (typeof isInPreviousSalaryPeriod !== 'function' || typeof isInSalaryPeriod !== 'function') {
+  // (déploiement partiel/cache non à jour), on n'affiche juste pas de
+  // suggestions plutôt que de casser tout l'onglet.
+  if (typeof isInSalaryPeriod !== 'function' || typeof getSalaryPeriod !== 'function') {
     console.warn('[Suggestions] assets/utils.js semble périmé (fonctions de période manquantes)');
     return [];
   }
 
   const dismissed = appData._dismissedSuggestions || [];
+  // Les clés d'ignorance sont taguées par cycle : un favori ignoré ne
+  // réapparaît pas ce cycle-ci, mais reviendra au cycle suivant.
+  const periodTag = getSalaryPeriod(appData.bancaire).start.toISOString().slice(0,10);
 
-  const prevBank = appData.bancaire.filter(x => isInPreviousSalaryPeriod(x.date, appData.bancaire));
-  const curBank  = appData.bancaire.filter(x => isInSalaryPeriod(x.date, appData.bancaire));
-  const prevDep  = appData.depenses.filter(x => isInPreviousSalaryPeriod(x.date, appData.bancaire));
-  const curDep   = appData.depenses.filter(x => isInSalaryPeriod(x.date, appData.bancaire));
+  const curBank = appData.bancaire.filter(x => isInSalaryPeriod(x.date, appData.bancaire));
+  const curDep  = appData.depenses.filter(x => isInSalaryPeriod(x.date, appData.bancaire));
+  const favBank = (appData.favoris && appData.favoris.bancaire) || [];
+  const favDep  = (appData.favoris && appData.favoris.depenses) || [];
 
-  const bankSuggestions = prevBank
-    .map(p => ({ ...p, _key: `b:${p.type}:${p.agence}:${p.montant}` }))
-    .filter(p => !dismissed.includes(p._key))
-    .filter(p => !curBank.some(c => c.type === p.type && c.agence === p.agence && c.montant === p.montant))
-    .map(p => ({ item: p, kind: 'bancaire', key: p._key }));
+  const bankSuggestions = [];
+  favBank.forEach(f => {
+    if (curBank.some(c => c.type===f.type && c.agence===f.agence && c.montant===f.montant)) return;
+    const key = `bf:${f.id}:${periodTag}`;
+    if (dismissed.includes(key)) return;
+    bankSuggestions.push({ item: { ...f, date: today() }, kind:'bancaire', key, source:'favori' });
+  });
 
-  const depSuggestions = prevDep
-    .map(p => ({ ...p, _key: `d:${p.label}:${p.categorie}:${p.montant}` }))
-    .filter(p => !dismissed.includes(p._key))
-    .filter(p => !curDep.some(c => c.label === p.label && c.categorie === p.categorie && c.montant === p.montant))
-    .map(p => ({ item: p, kind: 'depenses', key: p._key }));
+  const depSuggestions = [];
+  favDep.forEach(f => {
+    if (curDep.some(c => c.label===f.label && c.categorie===f.categorie && c.montant===f.montant)) return;
+    const key = `df:${f.id}:${periodTag}`;
+    if (dismissed.includes(key)) return;
+    depSuggestions.push({ item: { ...f, date: today() }, kind:'depenses', key, source:'favori' });
+  });
 
   return [...bankSuggestions, ...depSuggestions];
+}
+
+function confirmSuggestion(kind, id, source) {
+  if (source === 'favori') pickFavori(kind, id);
+  else duplicateItem(kind, id);
 }
 
 function dismissSuggestion(key) {
@@ -973,22 +1000,23 @@ function renderSuggestions(c, kindFilter) {
 
   const box = el('div',{style:'margin-bottom:16px'});
   box.innerHTML = `<div style="font-size:11px;color:var(--text3);margin-bottom:8px">💡 À reconduire pour ce cycle (${fmtPeriodLabel(appData.bancaire)}) :</div>`;
-  suggestions.forEach(({ item, kind, key }) => {
+  suggestions.forEach(({ item, kind, key, source }) => {
     const isBank = kind === 'bancaire';
     const isC = isBank && item.sens === 'credit';
     const col = isBank ? (isC ? '#22d3ee' : '#f472b6') : '#fb923c';
     const title = isBank ? (item.type + (item.note ? ' — ' + item.note : '')) : item.label;
     const meta = isBank ? ('🏦 ' + item.agence) : esc(item.categorie);
+    const originLabel = source === 'favori' ? '⭐ Favori' : ('Dernier cycle : ' + fmtDate(item.date));
     const row = el('div',{className:'item-row',style:`background:${col}0a;border:1px dashed ${col}44`});
     row.innerHTML = `
       <div class="item-header">
         <div style="flex:1;min-width:0">
           <div class="item-title">${esc(title)}</div>
-          <div class="item-date">Dernier cycle : ${fmtDate(item.date)} · ${meta}</div>
+          <div class="item-date">${originLabel} · ${meta}</div>
         </div>
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:${col}">${isBank?(isC?'+':'-'):'-'}${fmt(item.montant)}</div>
-          <button class="item-dup" data-kind="${kind}" data-id="${item.id}" onclick="duplicateItem(this.dataset.kind,this.dataset.id)" title="Confirmer">➕</button>
+          <button class="item-dup" data-kind="${kind}" data-id="${item.id}" data-source="${source}" onclick="confirmSuggestion(this.dataset.kind,this.dataset.id,this.dataset.source)" title="Confirmer">➕</button>
           <button class="item-del" data-key="${key}" onclick="dismissSuggestion(this.dataset.key)" title="Ignorer">🗑</button>
         </div>
       </div>`;
@@ -1102,7 +1130,7 @@ function renderDepenses(c) {
   btnExpD.onclick = () => exportExcel('depenses');
   const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#f472b6,#be185d);font-size:12px;padding:10px 12px'});
   btn.textContent = '+ Ajouter';
-  btn.onclick = () => openModal('depense');
+  btn.onclick = () => openFavorisPicker('depenses');
   btnWrap2.appendChild(btnExpD);
   btnWrap2.appendChild(btn);
   header.appendChild(btnWrap2);
@@ -1176,7 +1204,7 @@ function renderBancaire(c) {
   btnExp.onclick = () => exportExcel('banque');
   const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5);font-size:12px;padding:10px 12px'});
   btn.textContent = '+ Ajouter';
-  btn.onclick = () => openModal('bancaire');
+  btn.onclick = () => openFavorisPicker('bancaire');
   btnWrap.appendChild(btnExp);
   btnWrap.appendChild(btn);
   topRow.appendChild(btnWrap);
@@ -1527,6 +1555,7 @@ function confirmImport() {
 // ═══════════════════════════════════════════════════════════════════════════════
 function openModal(type) {
   openCatGroup = null;
+  modalSaveTarget = 'real';
   const mc = document.getElementById('modal-container');
   mc.innerHTML = '';
   const overlay = el('div',{className:'modal-overlay'});
@@ -1535,6 +1564,8 @@ function openModal(type) {
   if (type === 'revenu') mc.appendChild(buildModalRevenu(overlay));
   else if (type === 'depense') mc.appendChild(buildModalDepense(overlay));
   else if (type === 'bancaire') mc.appendChild(buildModalBancaire(overlay));
+  else if (type === 'favori-bancaire') { modalSaveTarget = 'favori'; mc.appendChild(buildModalBancaire(overlay, true)); }
+  else if (type === 'favori-depense') { modalSaveTarget = 'favori'; mc.appendChild(buildModalDepense(overlay, true)); }
 }
 function closeModal() {
   document.getElementById('modal-container').innerHTML = '';
@@ -1568,20 +1599,20 @@ function submitRevenu() {
   saveData(); closeModal(); renderCurrent(); showToast('✅ Revenu enregistré');
 }
 
-function buildModalDepense(overlay) {
+function buildModalDepense(overlay, isFavori) {
   const box = el('div',{className:'modal-box'});
   box.innerHTML = `
     <div class="modal-handle"></div>
-    <div class="modal-title"><span style="color:var(--pink)">➖ Nouvelle dépense</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-title"><span style="color:var(--pink)">${isFavori?'⭐ Nouveau favori dépense':'➖ Nouvelle dépense'}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
     <label class="form-label">Libellé</label>
     <input class="form-input" id="d-label" type="text" placeholder="Ex: Courses marché" />
     <label class="form-label">Montant (FCFA)</label>
     <input class="form-input" id="d-montant" type="number" placeholder="Ex: 35000" />
-    <label class="form-label">Date</label>
-    <input class="form-input" id="d-date" type="date" value="${today()}" />
+    ${isFavori ? '' : `<label class="form-label">Date</label>
+    <input class="form-input" id="d-date" type="date" value="${today()}" />`}
     <label class="form-label">Catégorie</label>
     <div id="cat-picker"></div>
-    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#f472b6,#be185d);margin-top:4px" onclick="submitDepense()">Enregistrer</button>`;
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#f472b6,#be185d);margin-top:4px" onclick="submitDepense()">${isFavori?'Enregistrer le favori':'Enregistrer'}</button>`;
   overlay.appendChild(box);
   // Build cat picker after DOM insertion
   setTimeout(() => buildCatPicker(CATS_DEP_FLAT[0]), 10);
@@ -1623,17 +1654,26 @@ function selectCat(cat) {
 function submitDepense() {
   const label = document.getElementById('d-label').value.trim();
   const montant = parseFloat(document.getElementById('d-montant').value);
-  const date = document.getElementById('d-date').value;
+  const dateEl = document.getElementById('d-date');
+  const date = dateEl ? dateEl.value : today();
   if (!label || !montant || isNaN(montant)) { showToast('⚠️ Remplissez tous les champs'); return; }
-  appData.depenses.unshift({id:uid(),label,montant,date,categorie:selectedCat});
-  saveData(); closeModal(); renderCurrent(); showToast('✅ Dépense enregistrée');
+  if (modalSaveTarget === 'favori') {
+    if (!appData.favoris) appData.favoris = { bancaire: [], depenses: [] };
+    appData.favoris.depenses.unshift({id:uid(),label,montant,categorie:selectedCat});
+    saveData(); closeModal(); showToast('⭐ Favori dépense enregistré');
+    if (document.getElementById('favoris-list')) renderFavorisModalContent();
+  } else {
+    appData.depenses.unshift({id:uid(),label,montant,date,categorie:selectedCat});
+    saveData(); closeModal(); renderCurrent(); showToast('✅ Dépense enregistrée');
+  }
 }
 
-function buildModalBancaire(overlay) {
+function buildModalBancaire(overlay, isFavori) {
+  currentSens = 'credit';
   const box = el('div',{className:'modal-box'});
   box.innerHTML = `
     <div class="modal-handle"></div>
-    <div class="modal-title"><span style="color:var(--purple)">🏦 Opération bancaire</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-title"><span style="color:var(--purple)">${isFavori?'⭐ Nouveau favori bancaire':'🏦 Opération bancaire'}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
     <label class="form-label">Mouvement</label>
     <div class="sens-toggle">
       <button class="sens-btn active-credit" id="sens-credit" onclick="setSens('credit')">Crédit ↑</button>
@@ -1643,13 +1683,13 @@ function buildModalBancaire(overlay) {
     <select class="form-select" id="b-type">${TYPES_BANCAIRE.map(t=>`<option>${t}</option>`).join('')}</select>
     <label class="form-label">Montant (FCFA)</label>
     <input class="form-input" id="b-montant" type="number" placeholder="Ex: 650000" />
-    <label class="form-label">Date</label>
-    <input class="form-input" id="b-date" type="date" value="${today()}" />
+    ${isFavori ? '' : `<label class="form-label">Date</label>
+    <input class="form-input" id="b-date" type="date" value="${today()}" />`}
     <label class="form-label">Agence / Canal</label>
     <select class="form-select" id="b-agence">${AGENCES.map(a=>`<option>${a}</option>`).join('')}</select>
     <label class="form-label">Note (optionnel)</label>
     <input class="form-input" id="b-note" type="text" placeholder="Ex: Prélèvement automatique" />
-    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5)" onclick="submitBancaire()">Enregistrer</button>`;
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5)" onclick="submitBancaire()">${isFavori?'Enregistrer le favori':'Enregistrer'}</button>`;
   overlay.appendChild(box);
   return overlay;
 }
@@ -1667,17 +1707,23 @@ function setSens(s) {
 function submitBancaire() {
   const montant = parseFloat(document.getElementById('b-montant').value);
   if (!montant || isNaN(montant)) { showToast('⚠️ Montant requis'); return; }
-  const newItem = {
-    id: uid(),
+  const dateEl = document.getElementById('b-date');
+  const baseItem = {
     type: document.getElementById('b-type').value,
     montant,
-    date: document.getElementById('b-date').value,
     sens: currentSens,
     agence: document.getElementById('b-agence').value,
     note: document.getElementById('b-note').value.trim(),
   };
-  appData.bancaire.unshift(newItem);
-  saveData(); closeModal(); renderCurrent(); showToast('✅ Opération enregistrée et synchronisée');
+  if (modalSaveTarget === 'favori') {
+    if (!appData.favoris) appData.favoris = { bancaire: [], depenses: [] };
+    appData.favoris.bancaire.unshift({ id: uid(), ...baseItem });
+    saveData(); closeModal(); showToast('⭐ Favori bancaire enregistré');
+    if (document.getElementById('favoris-list')) renderFavorisModalContent();
+  } else {
+    appData.bancaire.unshift({ id: uid(), ...baseItem, date: dateEl ? dateEl.value : today() });
+    saveData(); closeModal(); renderCurrent(); showToast('✅ Opération enregistrée et synchronisée');
+  }
 }
 
 // ── Dupliquer une opération existante (cycle mensuel récurrent) ──────────────
@@ -1710,7 +1756,167 @@ function duplicateItem(section, id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// UTILS
+// FAVORIS — écran de gestion + sélecteur rapide pour ajouter une opération
+// ═══════════════════════════════════════════════════════════════════════════════
+function openFavorisModal() {
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div',{className:'modal-overlay'});
+  overlay.onclick = e => { if(e.target===overlay) closeModal(); };
+  const box = el('div',{className:'modal-box'});
+  box.id = 'favoris-modal-box';
+  box.innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-title"><span style="color:var(--yellow)">⭐ Favoris</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div id="favoris-list"></div>`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+  renderFavorisModalContent();
+}
+
+function renderFavorisModalContent() {
+  const holder = document.getElementById('favoris-list');
+  if (!holder) return;
+  const favBank = (appData.favoris && appData.favoris.bancaire) || [];
+  const favDep  = (appData.favoris && appData.favoris.depenses) || [];
+
+  let html = `<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px">Favoris Banque</div>`;
+  if (favBank.length === 0) {
+    html += `<div style="font-size:12px;color:var(--text3);margin-bottom:10px">Aucun favori bancaire.</div>`;
+  } else {
+    favBank.forEach(f => {
+      const col = f.sens==='credit' ? '#22d3ee' : '#f472b6';
+      html += `<div class="item-row" style="background:${col}0a;border:1px solid ${col}22">
+        <div class="item-header">
+          <div style="flex:1;min-width:0">
+            <div class="item-title">${esc(f.type)}${f.note?' — '+esc(f.note):''}</div>
+            <div class="item-date">🏦 ${esc(f.agence)}</div>
+          </div>
+          <div style="text-align:right;margin-left:10px">
+            <div class="item-amount" style="color:${col}">${f.sens==='credit'?'+':'-'}${fmt(f.montant)}</div>
+            <button class="item-del" data-kind="bancaire" data-id="${f.id}" onclick="deleteFavori(this.dataset.kind,this.dataset.id)">🗑</button>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  html += `<button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5);margin-bottom:18px" onclick="openModal('favori-bancaire')">+ Ajouter un favori bancaire</button>`;
+
+  html += `<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px">Favoris Dépenses</div>`;
+  if (favDep.length === 0) {
+    html += `<div style="font-size:12px;color:var(--text3);margin-bottom:10px">Aucun favori dépense.</div>`;
+  } else {
+    favDep.forEach(f => {
+      const col = getCatColor(f.categorie);
+      html += `<div class="item-row" style="background:${col}0a;border:1px solid ${col}22">
+        <div class="item-header">
+          <div style="flex:1;min-width:0">
+            <div class="item-title">${esc(f.label)}</div>
+            <span class="badge" style="background:${col}22;color:${col}">${esc(f.categorie)}</span>
+          </div>
+          <div style="text-align:right;margin-left:10px">
+            <div class="item-amount" style="color:var(--pink)">-${fmt(f.montant)}</div>
+            <button class="item-del" data-kind="depenses" data-id="${f.id}" onclick="deleteFavori(this.dataset.kind,this.dataset.id)">🗑</button>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  html += `<button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#f472b6,#be185d)" onclick="openModal('favori-depense')">+ Ajouter un favori dépense</button>`;
+
+  holder.innerHTML = html;
+}
+
+function deleteFavori(kind, id) {
+  if (!appData.favoris) appData.favoris = { bancaire: [], depenses: [] };
+  appData.favoris[kind] = (appData.favoris[kind] || []).filter(x => String(x.id) !== String(id));
+  saveData();
+  renderFavorisModalContent();
+  showToast('Favori supprimé');
+}
+
+// ── Sélecteur de favoris (remplace la saisie manuelle lors de l'ajout) ───────
+function openFavorisPicker(kind) {
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div',{className:'modal-overlay'});
+  overlay.onclick = e => { if(e.target===overlay) closeModal(); };
+  const box = el('div',{className:'modal-box'});
+  const isBank = kind === 'bancaire';
+  const list = (appData.favoris && appData.favoris[kind]) || [];
+
+  let html = `<div class="modal-handle"></div>
+    <div class="modal-title"><span style="color:${isBank?'var(--purple)':'var(--pink)'}">⭐ ${isBank?'Nouvelle opération':'Nouvelle dépense'}</span><button class="modal-close" onclick="closeModal()">✕</button></div>`;
+
+  if (list.length === 0) {
+    html += `<div style="text-align:center;padding:30px 10px;color:var(--text3);font-size:13px">Aucun favori pour l'instant.<br>Ajoute-en depuis ⭐ Favoris en haut de l'écran.</div>
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#facc15,#ca8a04);color:#0f172a" onclick="closeModal();openFavorisModal()">⭐ Gérer mes favoris</button>`;
+  } else {
+    const groups = {};
+    list.forEach(f => {
+      const grp = isBank ? f.type : (getGrpForCat(f.categorie) || f.categorie);
+      if (!groups[grp]) groups[grp] = [];
+      groups[grp].push(f);
+    });
+    Object.entries(groups).forEach(([grp, items]) => {
+      html += `<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px">${esc(grp)}</div>`;
+      items.forEach(f => {
+        const col = isBank ? (f.sens==='credit'?'#22d3ee':'#f472b6') : getCatColor(f.categorie);
+        const title = isBank ? (f.type + (f.note?' — '+f.note:'')) : f.label;
+        const meta = isBank ? esc(f.agence) : esc(f.categorie);
+        html += `<button data-kind="${kind}" data-id="${f.id}" onclick="pickFavori(this.dataset.kind,this.dataset.id)" style="width:100%;text-align:left;display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:12px;background:${col}0a;border:1px solid ${col}22;margin-bottom:8px;cursor:pointer">
+          <span>
+            <div style="font-weight:700;font-size:14px;color:var(--text)">${esc(title)}</div>
+            <div style="font-size:11px;color:var(--text3)">${meta}</div>
+          </span>
+          <span style="font-family:var(--mono);font-weight:700;color:${col}">${fmt(f.montant)}</span>
+        </button>`;
+      });
+    });
+  }
+  box.innerHTML = html;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+}
+
+function pickFavori(kind, id) {
+  const fav = ((appData.favoris && appData.favoris[kind]) || []).find(x => String(x.id) === String(id));
+  if (!fav) { showToast('⚠️ Favori introuvable'); return; }
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div', { className: 'modal-overlay center' });
+  overlay.onclick = e => { if(e.target===overlay) mc.innerHTML=''; };
+  const box = el('div', { className: 'modal-box center' });
+  box.style.cssText = 'border-radius:24px;max-width:320px;padding:24px;text-align:center';
+  const isBank = kind === 'bancaire';
+  const title = isBank ? (fav.type + (fav.note ? ' — ' + fav.note : '')) : fav.label;
+  box.innerHTML = `
+    <div style="font-size:36px;margin-bottom:10px">${isBank?'🏦':'💸'}</div>
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">${esc(title)}</div>
+    <div style="font-family:var(--mono);font-size:20px;font-weight:700;color:${isBank&&fav.sens==='credit'?'var(--cyan)':'var(--pink)'};margin-bottom:16px">${fmt(fav.montant)}</div>
+    <label class="form-label" style="text-align:left;display:block">Date</label>
+    <input class="form-input" id="fav-confirm-date" type="date" value="${today()}" style="margin-bottom:16px" />
+    <div style="display:flex;gap:10px">
+      <button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:14px">Annuler</button>
+      <button onclick="confirmFavori('${kind}','${id}')" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#0891b2);border:none;color:white;font-weight:700;font-size:14px">Ajouter</button>
+    </div>`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+}
+
+function confirmFavori(kind, id) {
+  const fav = ((appData.favoris && appData.favoris[kind]) || []).find(x => String(x.id) === String(id));
+  if (!fav) return;
+  const dateEl = document.getElementById('fav-confirm-date');
+  const date = dateEl && dateEl.value ? dateEl.value : today();
+  const { id: _oldId, ...rest } = fav;
+  const newItem = { id: uid(), ...rest, date };
+  appData[kind].unshift(newItem);
+  saveData(); closeModal(); renderCurrent();
+  showToast(kind === 'bancaire' ? '✅ Opération enregistrée et synchronisée' : '✅ Dépense enregistrée');
+}
+
+
 // ═══════════════════════════════════════════════════════════════════════════════
 function el(tag, props={}) {
   const e = document.createElement(tag);
@@ -2365,7 +2571,7 @@ async function loadFromDrive() {
     if (isValidDriveBackup(driveData)) {
       // Merge: use Drive data if more recent
       if (isDriveDataNewer(driveData.savedAt, localStorage.getItem('mf_last_save'))) {
-        appData = driveData;
+        appData = ensureFavoris(driveData);
         delete appData.savedAt;
         saveData();
         render();
@@ -2431,7 +2637,7 @@ async function confirmRestoreFromDrive() {
     );
     const driveData = await res.json();
     if (isValidDriveBackup(driveData)) {
-      appData = driveData;
+      appData = ensureFavoris(driveData);
       delete appData.savedAt;
       saveData();
       renderCurrent();
