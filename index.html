@@ -1130,7 +1130,7 @@ function renderDepenses(c) {
   btnExpD.onclick = () => exportExcel('depenses');
   const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#f472b6,#be185d);font-size:12px;padding:10px 12px'});
   btn.textContent = '+ Ajouter';
-  btn.onclick = () => openFavorisPicker('depenses');
+  btn.onclick = () => openModal('depense');
   btnWrap2.appendChild(btnExpD);
   btnWrap2.appendChild(btn);
   header.appendChild(btnWrap2);
@@ -1204,7 +1204,7 @@ function renderBancaire(c) {
   btnExp.onclick = () => exportExcel('banque');
   const btn = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5);font-size:12px;padding:10px 12px'});
   btn.textContent = '+ Ajouter';
-  btn.onclick = () => openFavorisPicker('bancaire');
+  btn.onclick = () => openModal('bancaire');
   btnWrap.appendChild(btnExp);
   btnWrap.appendChild(btn);
   topRow.appendChild(btnWrap);
