@@ -227,6 +227,244 @@ function pickDriveFileId(searchResult) {
   return null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ANALYSE INTELLIGENTE — anomalies, tendances, pistes d'économies (cost cutting)
+// Algorithmes statistiques exécutés 100 % en local : aucune donnée n'est envoyée.
+//   • Z-score robuste (MAD) pour repérer les dépenses inhabituelles
+//   • Moyenne mobile pondérée + tendance pour prévoir le prochain cycle
+//   • Détection des charges récurrentes (faible coefficient de variation)
+//   • Détection des micro-dépenses répétées (effet « petites dépenses »)
+//   • Comparaison au cycle moyen des 3 cycles précédents (dérive par catégorie)
+// ═══════════════════════════════════════════════════════════════════════════════
+const DAY_MS = 86400000;
+// Taux de réduction réalistes sur les postes discrétionnaires
+const CUT_RATES = { Resto: 0.30, Loisir: 0.30, Entretien: 0.10, Transport: 0.10 };
+// Charges peu compressibles à court terme (pas de suggestion « rythme »)
+const FIXED_CATS = ['Loyer', 'École', 'Service', 'Aide'];
+const MIN_SAVING = 2000;
+
+function _mean(a) { return a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0; }
+function _median(a) {
+  if (!a.length) return 0;
+  const s = [...a].sort((x, y) => x - y), m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function _std(a) {
+  if (a.length < 2) return 0;
+  const m = _mean(a);
+  return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / (a.length - 1));
+}
+
+// « Brioche », « brioche 2 », « Salaire Mai 2026 » → clé de regroupement stable
+function normalizeLabel(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre|janv|fev|avr|juil|sept|oct|nov|dec)\b/g, ' ')
+    .replace(/[0-9]+/g, ' ')
+    .replace(/[^a-z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Blocs de 30 jours : [cycle courant, cycle -1, cycle -2, ...]
+function getPeriodBlocks(bancaire, count = 4, now = new Date()) {
+  const cur = getSalaryPeriod(bancaire, now);
+  const blocks = [{ start: cur.start, end: cur.end, current: true }];
+  let start = cur.start;
+  for (let i = 1; i < count; i++) {
+    const end = new Date(start); end.setDate(end.getDate() - 1);
+    const s = new Date(end); s.setDate(s.getDate() - 29);
+    blocks.push({ start: s, end, current: false });
+    start = s;
+  }
+  return blocks;
+}
+function _inBlock(dateStr, b) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d >= b.start && d <= b.end;
+}
+
+function analyzeSpending(data, now = new Date()) {
+  const bancaire = (data && data.bancaire) || [];
+  const depenses = (data && data.depenses) || [];
+  const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
+
+  const blocks = getPeriodBlocks(bancaire, 4, now);
+  const cur = blocks[0];
+  const totalDays = Math.round((cur.end - cur.start) / DAY_MS) + 1;
+  const daysElapsed = Math.min(Math.max(Math.round((today0 - cur.start) / DAY_MS) + 1, 1), totalDays);
+  const elapsedFrac = daysElapsed / totalDays;
+
+  const curItems = depenses.filter(d => _inBlock(d.date, cur));
+  const curTotal = curItems.reduce((s, d) => s + d.montant, 0);
+  const prevBlocks = blocks.slice(1).filter(b => depenses.some(d => _inBlock(d.date, b)));
+  const prevTotals = prevBlocks.map(b => depenses.filter(d => _inBlock(d.date, b)).reduce((s, d) => s + d.montant, 0));
+
+  const result = {
+    enough: depenses.length >= 3,
+    period: { start: cur.start, end: cur.end, daysElapsed, totalDays },
+    totals: { current: curTotal, baseline: prevTotals.length ? _mean(prevTotals) : null },
+    categories: [], insights: [], potentialSaving: 0,
+    forecast: { nextCycle: null, trend: 'flat', projectedCurrent: null },
+    income: 0, spendRatio: null,
+  };
+  if (!result.enough) return result;
+
+  // ── Par catégorie : total du cycle vs moyenne des cycles précédents ────────
+  const catCur = {}, catItems = {};
+  curItems.forEach(d => {
+    const g = getGrpForCat(d.categorie);
+    catCur[g] = (catCur[g] || 0) + d.montant;
+    (catItems[g] = catItems[g] || []).push(d);
+  });
+  const catBase = {};
+  const cats = new Set(Object.keys(catCur));
+  depenses.forEach(d => { if (prevBlocks.some(b => _inBlock(d.date, b))) cats.add(getGrpForCat(d.categorie)); });
+  cats.forEach(g => {
+    if (!prevBlocks.length) { catBase[g] = null; return; }
+    const perBlock = prevBlocks.map(b =>
+      depenses.filter(d => _inBlock(d.date, b) && getGrpForCat(d.categorie) === g).reduce((s, d) => s + d.montant, 0));
+    catBase[g] = _mean(perBlock);
+  });
+  result.categories = [...cats].map(g => {
+    const total = catCur[g] || 0, base = catBase[g];
+    return { cat: g, current: total, baseline: base, count: (catItems[g] || []).length,
+             delta: base == null ? null : total - base,
+             pct: base ? (total / base - 1) : null,
+             discretionary: g in CUT_RATES };
+  }).sort((a, b) => b.current - a.current);
+
+  // ── Pistes d'économies par catégorie (on garde la meilleure par catégorie) ─
+  const counted = [];
+  [...cats].forEach(g => {
+    const total = catCur[g] || 0;
+    if (total <= 0) return;
+    const base = catBase[g];
+    const cands = [];
+
+    if (base && base > 0 && total > base * 1.15 && total - base >= MIN_SAVING) {
+      const pct = total / base - 1, saving = total - base;
+      cands.push({ kind: 'overspend', saving, severity: pct > 0.3 ? 'high' : 'medium', icon: '📈',
+        title: `${g} au-dessus de votre moyenne`,
+        detail: `${fmt(total)} ce cycle contre ${fmt(base)} en moyenne (+${Math.round(pct * 100)} %). Revenir à la moyenne économiserait ${fmt(saving)}.` });
+    } else if (base && base > 0 && !FIXED_CATS.includes(g) && elapsedFrac >= 0.15 && elapsedFrac < 0.7
+               && total / elapsedFrac > base * 1.25) {
+      const proj = total / elapsedFrac, saving = proj - base;
+      if (saving >= MIN_SAVING) cands.push({ kind: 'pace', saving, severity: 'medium', icon: '⏱️',
+        title: `${g} : rythme trop rapide`,
+        detail: `Au rythme actuel (${daysElapsed}/${totalDays} jours), ${g} atteindrait ≈ ${fmt(proj)} contre ${fmt(base)} habituellement.` });
+    }
+
+    if (!FIXED_CATS.includes(g)) {
+      const byLabel = {};
+      (catItems[g] || []).forEach(d => {
+        const k = normalizeLabel(d.label) || d.label;
+        (byLabel[k] = byLabel[k] || { label: d.label, n: 0, sum: 0 });
+        byLabel[k].n++; byLabel[k].sum += d.montant;
+      });
+      const micro = Object.values(byLabel)
+        .filter(x => x.n >= 3 && x.sum >= 5000 && x.sum / x.n <= 15000)
+        .sort((a, b) => b.sum - a.sum)[0];
+      if (micro) {
+        const saving = micro.sum * 0.3;
+        if (saving >= MIN_SAVING) cands.push({ kind: 'micro', saving, severity: 'low', icon: '🔁',
+          title: `Petites dépenses répétées : « ${micro.label} »`,
+          detail: `${micro.n} achats = ${fmt(micro.sum)} ce cycle (moy. ${fmt(micro.sum / micro.n)}). En réduire 30 % économiserait ≈ ${fmt(saving)}.` });
+      }
+    }
+
+    if (CUT_RATES[g]) {
+      const saving = total * CUT_RATES[g];
+      if (saving >= MIN_SAVING) cands.push({ kind: 'target', saving, severity: 'low', icon: '🎯',
+        title: `Objectif d'économie : ${g}`,
+        detail: `Poste discrétionnaire : ${fmt(total)} ce cycle. Viser −${Math.round(CUT_RATES[g] * 100)} % libérerait ${fmt(saving)}.` });
+    }
+
+    if (cands.length) {
+      const best = cands.sort((a, b) => b.saving - a.saving)[0];
+      counted.push({ id: best.kind + ':' + g, cat: g, counted: true, ...best });
+    }
+  });
+
+  // ── Frais bancaires évitables (agios) ──────────────────────────────────────
+  const agios = bancaire.filter(x => x.type === 'Agios' && x.sens === 'debit' && _inBlock(x.date, cur))
+                        .reduce((s, x) => s + x.montant, 0);
+  if (agios > 0) counted.push({ id: 'fees:agios', kind: 'fees', counted: true, saving: agios, severity: 'medium', icon: '🏦',
+    title: 'Agios évitables',
+    detail: `${fmt(agios)} d'agios ce cycle. Ils viennent généralement d'un découvert : garder le compte positif les supprime.` });
+
+  // ── Anomalies : z-score robuste (MAD) sur l'historique de la catégorie ─────
+  const anomalies = [];
+  [...cats].forEach(g => {
+    const hist = depenses.filter(d => getGrpForCat(d.categorie) === g).map(d => d.montant);
+    if (hist.length < 5) return;
+    const med = _median(hist), mad = _median(hist.map(x => Math.abs(x - med)));
+    (catItems[g] || []).forEach(d => {
+      const x = d.montant;
+      const flagged = mad > 0 ? (0.6745 * (x - med) / mad > 3.5 && x > med * 1.5) : (x >= med * 1.8 && _std(hist) > 0);
+      if (flagged) anomalies.push({ id: 'anomaly:' + d.id, kind: 'anomaly', counted: false, saving: x - med, severity: 'medium', icon: '⚠️',
+        title: `Dépense inhabituelle : ${d.label}`,
+        detail: `${fmt(x)} en ${g} le ${fmtDate(d.date)} — habituellement ≈ ${fmt(med)}. À vérifier (erreur de saisie ou achat exceptionnel ?).` });
+    });
+  });
+  anomalies.sort((a, b) => b.saving - a.saving);
+
+  // ── Charges récurrentes (même libellé sur ≥ 2 mois, montant stable) ────────
+  const groups = {};
+  depenses.forEach(d => {
+    const k = normalizeLabel(d.label); if (!k) return;
+    (groups[k] = groups[k] || { label: d.label, months: new Set(), amts: [] });
+    groups[k].months.add(d.date.slice(0, 7)); groups[k].amts.push(d.montant);
+  });
+  const recurring = Object.values(groups)
+    .filter(g => g.months.size >= 2 && _mean(g.amts) > 0 && _std(g.amts) / _mean(g.amts) <= 0.15)
+    .map(g => ({ label: g.label, avg: _mean(g.amts) }))
+    .sort((a, b) => b.avg - a.avg);
+
+  // ── Ratio dépenses / revenus du cycle ──────────────────────────────────────
+  const income = bancaire.filter(x => x.sens === 'credit' && _inBlock(x.date, cur)).reduce((s, x) => s + x.montant, 0);
+  result.income = income;
+  const budgetCards = [];
+  if (income > 0) {
+    result.spendRatio = curTotal / income;
+    if (result.spendRatio > 0.8) budgetCards.push({ id: 'budget:ratio', kind: 'budget', counted: false,
+      saving: curTotal - 0.7 * income, severity: 'high', icon: '🚨',
+      title: 'Dépenses élevées par rapport au revenu',
+      detail: `Les dépenses représentent ${Math.round(result.spendRatio * 100)} % des revenus du cycle (${fmt(curTotal)} / ${fmt(income)}). Objectif sain : ≤ 70 %.` });
+  }
+
+  const infoCards = [];
+  if (recurring.length) {
+    const top = recurring.slice(0, 3).map(r => `${r.label} (${fmt(r.avg)})`).join(', ');
+    infoCards.push({ id: 'recurring', kind: 'recurring', counted: false, saving: 0, severity: 'low', icon: '📌',
+      title: `${recurring.length} charge${recurring.length > 1 ? 's' : ''} récurrente${recurring.length > 1 ? 's' : ''} détectée${recurring.length > 1 ? 's' : ''}`,
+      detail: `≈ ${fmt(recurring.reduce((s, r) => s + r.avg, 0))} par cycle : ${top}. À renégocier ou résilier si non essentielles.` });
+  }
+
+  counted.sort((a, b) => b.saving - a.saving);
+  result.insights = [
+    ...budgetCards,            // alerte globale d'abord
+    ...counted,                // puis les économies chiffrées, par gain décroissant
+    ...anomalies.slice(0, 3),  // puis les anomalies à vérifier
+    ...infoCards,              // enfin les informations (charges récurrentes)
+  ];
+  result.potentialSaving = counted.reduce((s, x) => s + x.saving, 0);
+
+  // ── Prévision : moyenne pondérée des cycles complets + tendance ────────────
+  if (prevTotals.length) {
+    const w = [3, 2, 1].slice(0, prevTotals.length);
+    result.forecast.nextCycle = prevTotals.slice(0, w.length).reduce((s, v, i) => s + v * w[i], 0) / w.reduce((s, x) => s + x, 0);
+    if (prevTotals.length >= 2) {
+      const ref = _mean(prevTotals.slice(1));
+      const r = ref > 0 ? prevTotals[0] / ref : 1;
+      result.forecast.trend = r > 1.1 ? 'up' : r < 0.9 ? 'down' : 'flat';
+    }
+  }
+  if (elapsedFrac >= 0.3) result.forecast.projectedCurrent = curTotal / elapsedFrac;
+  return result;
+}
+
 // ── Export UMD : window.* dans le navigateur, module.exports sous Node/Jest ──
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -236,6 +474,7 @@ if (typeof module !== 'undefined' && module.exports) {
     fmt, fmtDate, uid,
     isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel,
     getPreviousSalaryPeriod, isInPreviousSalaryPeriod,
+    normalizeLabel, getPeriodBlocks, analyzeSpending, CUT_RATES, FIXED_CATS,
     isTokenValid, isValidDriveBackup, isDriveDataNewer, pickDriveFileId,
     DepenseSchema, BancaireSchema, RevenuSchema, AppDataSchema,
   };
