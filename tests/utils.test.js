@@ -6,6 +6,11 @@ const {
   getSalaryPeriod,
   isInSalaryPeriod,
   fmtPeriodLabel,
+  getPreviousSalaryPeriod,
+  isInPreviousSalaryPeriod,
+  normalizeLabel,
+  getPeriodBlocks,
+  analyzeSpending,
   fmt,
   CATS_DEP_FLAT,
   isTokenValid,
@@ -111,6 +116,21 @@ describe('getSalaryPeriod / isInSalaryPeriod', () => {
   });
 });
 
+describe('getPreviousSalaryPeriod / isInPreviousSalaryPeriod', () => {
+  const bancaire = [{ type: 'Salaire', sens: 'credit', date: '2026-05-01' }];
+  const today = new Date('2026-05-15T00:00:00');
+
+  test('la période précédente est exactement les 30 jours avant le cycle courant, sans chevauchement', () => {
+    const prev = getPreviousSalaryPeriod(bancaire, today);
+    expect(prev.start.toISOString().slice(0,10)).toBe('2026-04-01');
+    expect(prev.end.toISOString().slice(0,10)).toBe('2026-04-30');
+  });
+  test('isInPreviousSalaryPeriod reconnaît une date du cycle précédent, pas du cycle courant', () => {
+    expect(isInPreviousSalaryPeriod('2026-04-15', bancaire, today)).toBe(true);
+    expect(isInPreviousSalaryPeriod('2026-05-10', bancaire, today)).toBe(false);
+  });
+});
+
 describe('fmt', () => {
   test('formate un montant en FCFA sans décimales', () => {
     expect(fmt(650000)).toContain('650');
@@ -190,5 +210,85 @@ describe('pickDriveFileId', () => {
     expect(pickDriveFileId({})).toBeNull();
     expect(pickDriveFileId(null)).toBeNull();
     expect(pickDriveFileId({ files: 'oops' })).toBeNull();
+  });
+});
+
+describe('Analyse intelligente (cost cutting)', () => {
+  const now = new Date('2026-07-30T12:00:00');
+  const bancaire = [
+    { id: 1, type: 'Salaire', sens: 'credit', montant: 650000, date: '2026-06-01', agence: 'CBAO Dakar' },
+    { id: 2, type: 'Salaire', sens: 'credit', montant: 650000, date: '2026-07-01', agence: 'CBAO Dakar' },
+    { id: 3, type: 'Agios', sens: 'debit', montant: 4500, date: '2026-07-10', agence: 'CBAO Dakar' },
+  ];
+  const base = [
+    { id: 1, label: 'Loyer appartement', montant: 100000, date: '2026-06-01', categorie: 'Loyer' },
+    { id: 2, label: 'Loyer appartement', montant: 100000, date: '2026-07-01', categorie: 'Loyer' },
+    { id: 3, label: 'Courses marché', montant: 30000, date: '2026-06-10', categorie: 'Alimentation' },
+    { id: 4, label: 'Courses marché', montant: 30000, date: '2026-07-10', categorie: 'Alimentation' },
+    { id: 5, label: 'resto midi', montant: 10000, date: '2026-06-05', categorie: 'Resto' },
+  ];
+  const brioches = [0, 1, 2, 3, 4].map(i => ({ id: 10 + i, label: 'brioche', montant: 4000, date: `2026-07-0${2 + i}`, categorie: 'Resto' }));
+
+  test('normalizeLabel ignore casse, accents, chiffres et mois', () => {
+    expect(normalizeLabel('Salaire Mai 2026')).toBe('salaire');
+    expect(normalizeLabel('  Brioche 2 ')).toBe('brioche');
+    expect(normalizeLabel('Frais scolarité')).toBe('frais scolarite');
+  });
+
+  test('getPeriodBlocks enchaîne des blocs de 30 jours sans trou ni chevauchement', () => {
+    const [cur, prev] = getPeriodBlocks(bancaire, 3, now);
+    expect(cur.start.getDate()).toBe(1); // cycle ancré sur le salaire du 1er juillet
+    const gap = (cur.start - prev.end) / 86400000;
+    expect(gap).toBe(1);
+  });
+
+  test('pas assez de données → enough=false et aucune piste', () => {
+    const r = analyzeSpending({ bancaire, depenses: base.slice(0, 2) }, now);
+    expect(r.enough).toBe(false);
+    expect(r.insights).toEqual([]);
+  });
+
+  test('détecte la dérive d\'une catégorie vs la moyenne des cycles précédents', () => {
+    const r = analyzeSpending({ bancaire, depenses: [...base, ...brioches] }, now);
+    const resto = r.insights.find(i => i.id === 'overspend:Resto');
+    expect(resto).toBeDefined();
+    expect(resto.saving).toBe(10000); // 20 000 ce cycle − 10 000 de moyenne
+    expect(resto.counted).toBe(true);
+  });
+
+  test('les agios du cycle sont comptés comme économie évitable', () => {
+    const r = analyzeSpending({ bancaire, depenses: [...base, ...brioches] }, now);
+    const fees = r.insights.find(i => i.kind === 'fees');
+    expect(fees.saving).toBe(4500);
+    expect(r.potentialSaving).toBe(14500); // Resto 10 000 + agios 4 500, sans double comptage
+  });
+
+  test('les charges fixes stables sont signalées comme récurrentes (non comptées)', () => {
+    const r = analyzeSpending({ bancaire, depenses: [...base, ...brioches] }, now);
+    const rec = r.insights.find(i => i.kind === 'recurring');
+    expect(rec).toBeDefined();
+    expect(rec.counted).toBe(false);
+  });
+
+  test('une dépense très supérieure à l\'historique de sa catégorie est une anomalie', () => {
+    const hist = [29000, 30000, 31000, 30000, 30500].map((m, i) =>
+      ({ id: 100 + i, label: 'Courses', montant: m, date: `2026-06-0${2 + i}`, categorie: 'Alimentation' }));
+    const spike = { id: 200, label: 'Courses fête', montant: 95000, date: '2026-07-05', categorie: 'Alimentation' };
+    const r = analyzeSpending({ bancaire, depenses: [...hist, spike] }, now);
+    const a = r.insights.find(i => i.kind === 'anomaly');
+    expect(a).toBeDefined();
+    expect(a.title).toContain('Courses fête');
+    expect(a.counted).toBe(false);
+  });
+
+  test('prévision du prochain cycle = moyenne pondérée des cycles complets', () => {
+    const r = analyzeSpending({ bancaire, depenses: [...base, ...brioches] }, now);
+    expect(r.forecast.nextCycle).toBe(140000); // un seul cycle complet : 100 000 + 30 000 + 10 000
+  });
+
+  test('ratio dépenses / revenu du cycle', () => {
+    const r = analyzeSpending({ bancaire, depenses: [...base, ...brioches] }, now);
+    expect(r.income).toBe(650000);
+    expect(r.spendRatio).toBeCloseTo(150000 / 650000, 5);
   });
 });
