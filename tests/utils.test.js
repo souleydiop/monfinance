@@ -11,6 +11,7 @@ const {
   normalizeLabel,
   getPeriodBlocks,
   analyzeSpending,
+  buildAiSummary,
   fmt,
   CATS_DEP_FLAT,
   isTokenValid,
@@ -290,5 +291,34 @@ describe('Analyse intelligente (cost cutting)', () => {
     const r = analyzeSpending({ bancaire, depenses: [...base, ...brioches] }, now);
     expect(r.income).toBe(650000);
     expect(r.spendRatio).toBeCloseTo(150000 / 650000, 5);
+  });
+});
+
+describe('buildAiSummary (résumé envoyé à l\'IA)', () => {
+  const now = new Date('2026-07-30T12:00:00');
+  const bancaire = [
+    { id: 1, type: 'Salaire', sens: 'credit', montant: 650000, date: '2026-06-01', agence: 'CBAO Dakar' },
+    { id: 2, type: 'Salaire', sens: 'credit', montant: 650000, date: '2026-07-01', agence: 'CBAO Dakar' },
+  ];
+  const depenses = [
+    { id: 1, label: 'resto midi', montant: 10000, date: '2026-06-05', categorie: 'Resto' },
+    { id: 2, label: 'resto', montant: 25000, date: '2026-07-05', categorie: 'Resto' },
+    { id: 3, label: 'Courses', montant: 30000, date: '2026-06-10', categorie: 'Alimentation' },
+  ];
+
+  test('contient les agrégats du cycle', () => {
+    const s = buildAiSummary(analyzeSpending({ bancaire, depenses }, now));
+    expect(s.devise).toBe('FCFA');
+    expect(s.depenses_cycle).toBe(25000);
+    expect(s.revenu_cycle).toBe(650000);
+    expect(s.cycle.debut).toBe('2026-07-01');
+  });
+
+  test('ne contient ni historique brut, ni agence, ni identifiant, ni date de transaction', () => {
+    const json = JSON.stringify(buildAiSummary(analyzeSpending({ bancaire, depenses }, now)));
+    expect(json).not.toContain('CBAO');
+    expect(json).not.toContain('"id"');
+    expect(json).not.toContain('2026-07-05');
+    expect(json).not.toContain('2026-06-10');
   });
 });
