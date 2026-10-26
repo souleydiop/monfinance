@@ -465,6 +465,30 @@ function analyzeSpending(data, now = new Date()) {
   return result;
 }
 
+// ── Résumé envoyé au conseiller IA ───────────────────────────────────────────
+// Uniquement des agrégats du cycle : jamais l'historique brut, ni les soldes de
+// compte, ni les identifiants. Les libellés n'apparaissent que dans le texte des
+// pistes (ex. « brioche ×5 »), ce que l'écran de consentement indique.
+function _ymd(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function buildAiSummary(res) {
+  const r0 = v => (v == null ? null : Math.round(v));
+  return {
+    devise: 'FCFA',
+    cycle: { debut: _ymd(res.period.start), fin: _ymd(res.period.end), jours_ecoules: res.period.daysElapsed, jours_total: res.period.totalDays },
+    revenu_cycle: r0(res.income),
+    depenses_cycle: r0(res.totals.current),
+    moyenne_cycles_precedents: r0(res.totals.baseline),
+    ratio_depenses_revenu: res.spendRatio == null ? null : Math.round(res.spendRatio * 100) / 100,
+    prevision: { fin_de_cycle: r0(res.forecast.projectedCurrent), prochain_cycle: r0(res.forecast.nextCycle), tendance: res.forecast.trend },
+    categories: res.categories.slice(0, 12).map(c => ({ categorie: c.cat, ce_cycle: r0(c.current), moyenne: r0(c.baseline), nb_depenses: c.count })),
+    pistes: res.insights.slice(0, 8).map(i => ({ type: i.kind, titre: i.title, detail: i.detail, economie: r0(i.saving), chiffree: i.counted })),
+    economies_potentielles: r0(res.potentialSaving),
+  };
+}
+
 // ── Export UMD : window.* dans le navigateur, module.exports sous Node/Jest ──
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -474,7 +498,7 @@ if (typeof module !== 'undefined' && module.exports) {
     fmt, fmtDate, uid,
     isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel,
     getPreviousSalaryPeriod, isInPreviousSalaryPeriod,
-    normalizeLabel, getPeriodBlocks, analyzeSpending, CUT_RATES, FIXED_CATS,
+    normalizeLabel, getPeriodBlocks, analyzeSpending, buildAiSummary, CUT_RATES, FIXED_CATS,
     isTokenValid, isValidDriveBackup, isDriveDataNewer, pickDriveFileId,
     DepenseSchema, BancaireSchema, RevenuSchema, AppDataSchema,
   };
