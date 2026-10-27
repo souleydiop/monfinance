@@ -1,6 +1,6 @@
 name = "monfinance-advisor"
 main = "index.js"
-compatibility_date = "2026-01-01"
+compatibility_date = "2026-10-27"
 
 [vars]
 # Seule l'origine de ton app peut appeler le proxy (plusieurs possibles, séparées par des virgules)
@@ -9,6 +9,8 @@ ALLOWED_ORIGIN = "https://souleydiop.github.io"
 MODEL = "claude-sonnet-5-5"
 # Nombre max de demandes par jour (actif seulement si le KV RATE ci-dessous est lié)
 DAILY_LIMIT = "30"
+[secrets]
+ANTHROPIC_API_KEY = "env.ANTHROPIC_API_KEY"
 
 # Compteur quotidien — recommandé :
 #   npx wrangler kv namespace create RATE
