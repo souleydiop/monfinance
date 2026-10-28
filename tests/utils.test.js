@@ -97,6 +97,16 @@ describe('getSalaryPeriod / isInSalaryPeriod', () => {
     expect(start.toISOString().slice(0,10)).toBe('2026-05-01');
   });
 
+  test('sans nouveau salaire après 30 jours, le cycle reste ouvert jusqu\'à aujourd\'hui', () => {
+    const late = new Date('2026-09-15T12:00:00');
+    const { start, end } = getSalaryPeriod(bancaire, late);
+    expect(start.toISOString().slice(0,10)).toBe('2026-05-01');
+    expect(end.getMonth()).toBe(8); // septembre
+    expect(end.getDate()).toBe(15);
+    // une saisie du jour reste visible
+    expect(isInSalaryPeriod('2026-09-15', bancaire, late)).toBe(true);
+  });
+
   test('repli sur le mois calendaire si aucun salaire enregistré', () => {
     const today = new Date('2026-07-15T00:00:00');
     const { start } = getSalaryPeriod([], today);
