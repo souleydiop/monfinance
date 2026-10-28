@@ -1,4 +1,4 @@
-const { handle, timingSafeEqual } = require('./core.js');
+const { handle, timingSafeEqual, normalizeOrigin } = require('./core.js');
 
 const ORIGIN = 'https://souleydiop.github.io';
 const env = { ACCESS_CODE: 'secret123', ANTHROPIC_API_KEY: 'sk-test', MODEL: 'claude-sonnet-5-5' };
@@ -48,8 +48,26 @@ describe('proxy Conseiller IA', () => {
     expect((await handle(mkReq({ method: 'OPTIONS', origin: 'https://x.io' }), env, anthropicOk)).status).toBe(403);
   });
 
-  test('méthode GET refusée (405)', async () => {
-    expect((await handle(mkReq({ method: 'GET' }), env, anthropicOk)).status).toBe(405);
+  test('méthodes autres que POST/GET/OPTIONS refusées (405)', async () => {
+    expect((await handle(mkReq({ method: 'PUT' }), env, anthropicOk)).status).toBe(405);
+  });
+
+  test('GET = page de diagnostic : origines et état des secrets, sans jamais les révéler', async () => {
+    const r = await handle(mkReq({ method: 'GET', origin: '' }), env, anthropicOk);
+    const d = JSON.parse(r.body);
+    expect(r.status).toBe(200);
+    expect(d.origines_autorisees).toEqual([ORIGIN]);
+    expect(d.secrets_configures).toBe(true);
+    expect(r.body).not.toContain('sk-test');
+    expect(r.body).not.toContain('secret123');
+  });
+
+  test('ALLOWED_ORIGIN tolère « / » final, chemin, guillemets et majuscules', async () => {
+    for (const v of [ORIGIN + '/', ORIGIN + '/monfinance', '"' + ORIGIN + '"', 'HTTPS://SouleyDiop.github.io', ' ' + ORIGIN + ' ']) {
+      const r = await handle(mkReq(), { ...env, ALLOWED_ORIGIN: v }, anthropicOk);
+      expect(r.status).toBe(200);
+    }
+    expect(normalizeOrigin(ORIGIN + '/monfinance/')).toBe(ORIGIN);
   });
 
   test('corps trop gros → 413 ; JSON invalide ou résumé absent → 400', async () => {

@@ -31,9 +31,17 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
+// Tolère les erreurs de saisie courantes : guillemets, « / » final, chemin, majuscules
+function normalizeOrigin(v) {
+  const t = String(v || '').trim().replace(/^["']+|["']+$/g, '');
+  try { return new URL(t).origin.toLowerCase(); } catch { return t.replace(/\/+$/, '').toLowerCase(); }
+}
+function allowedOrigins(env) {
+  return String(env.ALLOWED_ORIGIN || DEFAULT_ORIGIN).split(',').map(normalizeOrigin).filter(Boolean);
+}
+
 function cors(origin, env) {
-  const allowed = String(env.ALLOWED_ORIGIN || DEFAULT_ORIGIN).split(',').map(s => s.trim()).filter(Boolean);
-  const ok = Boolean(origin) && allowed.includes(origin);
+  const ok = Boolean(origin) && allowedOrigins(env).includes(normalizeOrigin(origin));
   const headers = { 'Vary': 'Origin' };
   if (ok) {
     headers['Access-Control-Allow-Origin'] = origin;
@@ -57,6 +65,15 @@ async function handle(req, env, fetchFn) {
   const { ok: originOk, headers: ch } = cors(req.origin, env);
 
   if (req.method === 'OPTIONS') return originOk ? reply(204, null, ch) : reply(403, { error: 'Origine non autorisée' }, ch);
+  // Page de diagnostic : ouvrir l'adresse du proxy dans le navigateur (aucune donnée sensible)
+  if (req.method === 'GET') {
+    return reply(200, {
+      service: 'monfinance-advisor', ok: true,
+      origines_autorisees: allowedOrigins(env),
+      secrets_configures: Boolean(env.ACCESS_CODE && env.ANTHROPIC_API_KEY),
+      limite_quotidienne_active: Boolean(env.RATE),
+    }, ch);
+  }
   if (req.method !== 'POST') return reply(405, { error: 'Méthode non autorisée' }, ch);
   if (!originOk) return reply(403, { error: 'Origine non autorisée' }, ch);
 
@@ -120,4 +137,4 @@ async function handle(req, env, fetchFn) {
   return reply(200, { text }, ch);
 }
 
-module.exports = { handle, timingSafeEqual, cors, SYSTEM_PROMPT, MAX_BODY, MAX_QUESTION };
+module.exports = { handle, timingSafeEqual, cors, normalizeOrigin, allowedOrigins, SYSTEM_PROMPT, MAX_BODY, MAX_QUESTION };
