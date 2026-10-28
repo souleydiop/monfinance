@@ -113,6 +113,9 @@ function getSalaryPeriod(bancaire, now = new Date()) {
   }
   const end = new Date(start);
   end.setDate(end.getDate() + 29); // fenêtre de 30 jours (jour 0 à jour 29)
+  // Aucun nouveau salaire enregistré après 30 jours : le cycle reste ouvert
+  // jusqu'à aujourd'hui, pour que les saisies récentes restent visibles.
+  if (end < today) end.setTime(today.getTime());
   return { start, end };
 }
 function isInSalaryPeriod(dateStr, bancaire, now = new Date()) {
