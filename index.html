@@ -2308,7 +2308,7 @@ async function askAdvisor() {
     localStorage.setItem('mf_ai_last', JSON.stringify({ tag: aiPeriodTag(), text: aiState.text, at }));
   } catch (e) {
     const msg = e.name === 'AbortError' ? 'Délai dépassé, réessayez.'
-              : (e instanceof TypeError ? 'Proxy injoignable (réseau ou adresse incorrecte).' : e.message);
+              : (e instanceof TypeError ? 'Proxy injoignable ou origine refusée. Ouvrez l\'adresse du proxy dans le navigateur : elle doit afficher « ok: true » et votre site dans origines_autorisees.' : e.message);
     aiState = { loading: false, text: '', error: msg, at: null };
   } finally { clearTimeout(timer); }
   if (currentTab === 'charts') render();
