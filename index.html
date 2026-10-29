@@ -2238,9 +2238,12 @@ function openAiSettings() {
     <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">⚙️ Réglages du conseiller IA</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:14px;line-height:1.5">Renseignez l'adresse de votre proxy (voir le dossier <b>worker/</b>) et le code d'accès que vous y avez défini. Ils restent uniquement sur cet appareil.</div>
     <label class="form-label">Adresse du proxy</label>
-    <input class="form-input" id="ai-endpoint" type="url" placeholder="https://monfinance-advisor.xxx.workers.dev" value="${esc(cfg.endpoint)}" />
+    <input class="form-input" id="ai-endpoint" type="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://monfinance-advisor.xxx.workers.dev" value="${esc(cfg.endpoint)}" />
     <label class="form-label">Code d'accès</label>
-    <input class="form-input" id="ai-code" type="password" autocomplete="off" value="${esc(cfg.code)}" />
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:14px">
+      <input class="form-input" id="ai-code" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(cfg.code)}" style="margin-bottom:0;flex:1" />
+      <button type="button" onclick="const i=document.getElementById('ai-code');i.type=i.type==='password'?'text':'password'" style="padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-size:14px">👁</button>
+    </div>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button onclick="clearAiSettings()" style="flex:1;padding:12px;border-radius:12px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:var(--red);font-weight:600;font-size:13px">Effacer</button>
       <button onclick="saveAiSettings()" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#0891b2);border:none;color:white;font-weight:700;font-size:13px">Enregistrer</button>
@@ -2248,7 +2251,7 @@ function openAiSettings() {
 }
 function saveAiSettings() {
   const endpoint = document.getElementById('ai-endpoint').value.trim();
-  const code = document.getElementById('ai-code').value;
+  const code = document.getElementById('ai-code').value.trim();
   if (endpoint && !/^https:\/\//i.test(endpoint)) { showToast('⚠️ L\'adresse doit commencer par https://'); return; }
   localStorage.setItem('mf_ai_endpoint', endpoint);
   localStorage.setItem('mf_ai_code', code);
