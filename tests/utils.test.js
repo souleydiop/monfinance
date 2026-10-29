@@ -11,6 +11,7 @@ const {
   normalizeLabel,
   getPeriodBlocks,
   analyzeSpending,
+  evaluateBudgets,
   buildAiSummary,
   fmt,
   CATS_DEP_FLAT,
@@ -330,5 +331,65 @@ describe('buildAiSummary (résumé envoyé à l\'IA)', () => {
     expect(json).not.toContain('"id"');
     expect(json).not.toContain('2026-07-05');
     expect(json).not.toContain('2026-06-10');
+  });
+});
+
+describe('Budgets par catégorie (min / max / seuil d\'alerte)', () => {
+  const bancaire = [{ id: 1, type: 'Salaire', sens: 'credit', montant: 650000, date: '2026-07-01', agence: 'X' }];
+  const dep = (cat, montant, date, id) => ({ id, label: cat + id, montant, date, categorie: cat });
+  const run = (budgets, depenses, nowStr, settings) =>
+    evaluateBudgets({ bancaire, depenses, budgets, budgetSettings: settings }, new Date(nowStr));
+  const byCat = (res, cat) => res.find(r => r.cat === cat);
+
+  test('aucun budget défini → liste vide', () => {
+    expect(run({}, [], '2026-07-15T12:00:00')).toEqual([]);
+    expect(run({ Resto: { min: null, max: null } }, [], '2026-07-15T12:00:00')).toEqual([]);
+  });
+
+  test('plafond dépassé → statut over avec le montant du dépassement', () => {
+    const r = byCat(run({ Resto: { max: 20000 } }, [dep('Resto', 25000, '2026-07-05', 1)], '2026-07-15T12:00:00'), 'Resto');
+    expect(r.status).toBe('over');
+    expect(r.message).toContain('dépassé');
+    expect(r.remaining).toBe(-5000);
+  });
+
+  test('seuil d\'alerte à 80 % par défaut → warn ; seuil personnalisable', () => {
+    const d = [dep('Resto', 16000, '2026-07-05', 1)];
+    expect(byCat(run({ Resto: { max: 20000 } }, d, '2026-07-15T12:00:00'), 'Resto').status).toBe('warn');   // 80 % exactement
+    expect(byCat(run({ Resto: { max: 20000 } }, d, '2026-07-15T12:00:00', { alertPct: 90 }), 'Resto').status).toBe('pace'); // sous 90 % mais rythme élevé
+    expect(byCat(run({ Resto: { max: 100000 } }, d, '2026-07-15T12:00:00'), 'Resto').status).toBe('ok');
+  });
+
+  test('rythme trop rapide → pace (au milieu du cycle, hors charges fixes)', () => {
+    // 10 000 au jour 15/30 → ≈ 20 000 projetés > plafond 15 000 mais seuil 80 % (12 000) non atteint
+    const r = byCat(run({ Resto: { max: 15000 } }, [dep('Resto', 10000, '2026-07-05', 1)], '2026-07-15T12:00:00'), 'Resto');
+    expect(r.status).toBe('pace');
+    // une charge fixe (Loyer) ne déclenche jamais « pace » : payée en une fois
+    const loyer = byCat(run({ Loyer: { max: 150000 } }, [dep('Loyer', 100000, '2026-07-02', 2)], '2026-07-15T12:00:00'), 'Loyer');
+    expect(loyer.status).toBe('ok');
+  });
+
+  test('minimum non atteint → under, seulement en fin de cycle (≥ 70 %)', () => {
+    const d = [dep('Alimentation', 10000, '2026-07-05', 1)];
+    expect(byCat(run({ Alimentation: { min: 40000 } }, d, '2026-07-10T12:00:00'), 'Alimentation').status).toBe('ok');    // début de cycle : trop tôt
+    const late = byCat(run({ Alimentation: { min: 40000 } }, d, '2026-07-26T12:00:00'), 'Alimentation');
+    expect(late.status).toBe('under');
+    expect(late.message).toContain('manque');
+  });
+
+  test('minimum atteint → ok', () => {
+    const d = [dep('Alimentation', 45000, '2026-07-05', 1)];
+    expect(byCat(run({ Alimentation: { min: 40000, max: 80000 } }, d, '2026-07-26T12:00:00'), 'Alimentation').status).toBe('ok');
+  });
+
+  test('seules les dépenses du cycle courant comptent', () => {
+    const d = [dep('Resto', 50000, '2026-06-10', 1), dep('Resto', 5000, '2026-07-05', 2)];
+    expect(byCat(run({ Resto: { max: 20000 } }, d, '2026-07-15T12:00:00'), 'Resto').spent).toBe(5000);
+  });
+
+  test('tri : les statuts les plus graves d\'abord', () => {
+    const d = [dep('Resto', 25000, '2026-07-05', 1), dep('Transport', 1000, '2026-07-05', 2)];
+    const res = run({ Transport: { max: 100000 }, Resto: { max: 20000 } }, d, '2026-07-15T12:00:00');
+    expect(res.map(r => r.cat)).toEqual(['Resto', 'Transport']);
   });
 });
