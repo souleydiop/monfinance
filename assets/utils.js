@@ -468,6 +468,59 @@ function analyzeSpending(data, now = new Date()) {
   return result;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUDGETS PAR CATÉGORIE — plafond (max), minimum (min) et seuil d'alerte
+// data.budgets = { Alimentation: { min: 40000, max: 60000 }, ... }  (par cycle de salaire)
+// data.budgetSettings = { alertPct: 80 }  → alerte « approche du plafond » à 80 % du max
+// Statuts : over (plafond dépassé) > warn (seuil atteint) > pace (rythme trop rapide)
+//           > under (minimum non atteint en fin de cycle) > ok
+// ═══════════════════════════════════════════════════════════════════════════════
+const BUDGET_RANK = { over: 0, warn: 1, pace: 2, under: 3, ok: 4 };
+
+function evaluateBudgets(data, now = new Date()) {
+  const budgets = (data && data.budgets) || {};
+  const entries = Object.entries(budgets).filter(([, b]) => b && (Number(b.min) > 0 || Number(b.max) > 0));
+  if (!entries.length) return [];
+
+  const bancaire = data.bancaire || [], depenses = data.depenses || [];
+  const alertPct = Math.min(100, Math.max(1, Number(data.budgetSettings && data.budgetSettings.alertPct) || 80));
+  const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
+  const cur = getSalaryPeriod(bancaire, now);
+  const totalDays = Math.round((cur.end - cur.start) / DAY_MS) + 1;
+  const daysElapsed = Math.min(Math.max(Math.round((today0 - cur.start) / DAY_MS) + 1, 1), totalDays);
+  const elapsedFrac = daysElapsed / totalDays;
+
+  const out = entries.map(([cat, b]) => {
+    const max = Number(b.max) > 0 ? Number(b.max) : null;
+    const min = Number(b.min) > 0 ? Number(b.min) : null;
+    const spent = depenses
+      .filter(d => _inBlock(d.date, cur) && getGrpForCat(d.categorie) === cat)
+      .reduce((s, d) => s + d.montant, 0);
+
+    let status = 'ok', message;
+    if (max != null && spent > max) {
+      status = 'over';
+      message = `Plafond dépassé de ${fmt(spent - max)} (${fmt(spent)} / ${fmt(max)})`;
+    } else if (max != null && spent >= max * alertPct / 100) {
+      status = 'warn';
+      message = `${Math.round(spent / max * 100)} % du plafond utilisé — il reste ${fmt(max - spent)}`;
+    } else if (max != null && !FIXED_CATS.includes(cat) && elapsedFrac >= 0.2 && elapsedFrac < 1 && spent / elapsedFrac > max) {
+      status = 'pace';
+      message = `Au rythme actuel : ≈ ${fmt(spent / elapsedFrac)} en fin de cycle (plafond ${fmt(max)})`;
+    } else if (min != null && spent < min && elapsedFrac >= 0.7) {
+      status = 'under';
+      message = `Minimum non atteint : ${fmt(spent)} / ${fmt(min)} (il manque ${fmt(min - spent)})`;
+    } else {
+      message = max != null ? `${fmt(spent)} sur ${fmt(max)} (${Math.round(spent / max * 100)} %)`
+                            : `${fmt(spent)} dépensés (minimum ${fmt(min)})`;
+    }
+    return { cat, spent, min, max, status, message,
+             pct: max != null ? spent / max : null,
+             remaining: max != null ? max - spent : null };
+  });
+  return out.sort((a, b) => (BUDGET_RANK[a.status] - BUDGET_RANK[b.status]) || ((b.pct || 0) - (a.pct || 0)));
+}
+
 // ── Résumé envoyé au conseiller IA ───────────────────────────────────────────
 // Uniquement des agrégats du cycle : jamais l'historique brut, ni les soldes de
 // compte, ni les identifiants. Les libellés n'apparaissent que dans le texte des
@@ -501,7 +554,7 @@ if (typeof module !== 'undefined' && module.exports) {
     fmt, fmtDate, uid,
     isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel,
     getPreviousSalaryPeriod, isInPreviousSalaryPeriod,
-    normalizeLabel, getPeriodBlocks, analyzeSpending, buildAiSummary, CUT_RATES, FIXED_CATS,
+    normalizeLabel, getPeriodBlocks, analyzeSpending, evaluateBudgets, buildAiSummary, CUT_RATES, FIXED_CATS,
     isTokenValid, isValidDriveBackup, isDriveDataNewer, pickDriveFileId,
     DepenseSchema, BancaireSchema, RevenuSchema, AppDataSchema,
   };
