@@ -573,6 +573,8 @@ const DEFAULT_DATA = {
     {id:6,type:'Échéance prêt',montant:85000,date:'2026-05-20',sens:'debit',agence:'CBAO Dakar',note:'Crédit immobilier'},
   ],
   favoris: { bancaire: [], depenses: [] },
+  budgets: {},
+  budgetSettings: { alertPct: 80 },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -597,21 +599,21 @@ function loadData() {
     const saved = localStorage.getItem('mf_data');
     data = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULT_DATA));
   } catch { data = JSON.parse(JSON.stringify(DEFAULT_DATA)); }
-  // Compatibilité : les données sauvegardées avant l'ajout des favoris n'ont pas ce champ
-  if (!data.favoris) data.favoris = { bancaire: [], depenses: [] };
-  if (!Array.isArray(data.favoris.bancaire)) data.favoris.bancaire = [];
-  if (!Array.isArray(data.favoris.depenses)) data.favoris.depenses = [];
-  return data;
+  return ensureDataShape(data);
 }
 function saveData() {
   localStorage.setItem('mf_data', JSON.stringify(appData));
 }
-function ensureFavoris(data) {
+// Compatibilité : garantit la présence des champs ajoutés après coup (anciennes sauvegardes, Drive…)
+function ensureDataShape(data) {
   if (!data.favoris) data.favoris = { bancaire: [], depenses: [] };
   if (!Array.isArray(data.favoris.bancaire)) data.favoris.bancaire = [];
   if (!Array.isArray(data.favoris.depenses)) data.favoris.depenses = [];
+  if (!data.budgets || typeof data.budgets !== 'object' || Array.isArray(data.budgets)) data.budgets = {};
+  if (!data.budgetSettings || typeof data.budgetSettings !== 'object') data.budgetSettings = { alertPct: 80 };
   return data;
 }
+const ensureFavoris = ensureDataShape; // ancien nom, conservé
 let appData = loadData();
 migrateData();
 
@@ -837,6 +839,15 @@ function renderDashboard(c) {
   const epargneRate = credits > 0 ? (solde/credits)*100 : 0;
   if (epargneRate < 10 && credits > 0) alerts.push({ color:'#a78bfa', icon:'💡', msg:'Recommandation : épargner au moins 10% des revenus (' + fmt(credits*0.1) + ')' });
 
+  // Alertes budgets par catégorie (les plus graves d'abord)
+  if (typeof evaluateBudgets === 'function') {
+    const BUD_ALERT = { over:{c:'#f87171',i:'🚨'}, warn:{c:'#fb923c',i:'⚠️'}, pace:{c:'#facc15',i:'⏱️'}, under:{c:'#a78bfa',i:'📉'} };
+    try {
+      evaluateBudgets(appData).filter(b => BUD_ALERT[b.status]).reverse().forEach(b =>
+        alerts.unshift({ color: BUD_ALERT[b.status].c, icon: BUD_ALERT[b.status].i, msg: `Budget ${esc(b.cat)} : ${esc(b.message)}` }));
+    } catch (err) { console.warn('[Budgets]', err); }
+  }
+
   if (alerts.length > 0) {
     const acard = el('div',{className:'card'});
     acard.innerHTML = '<div class="card-title">🔔 ALERTES & RECOMMANDATIONS</div>';
@@ -847,6 +858,8 @@ function renderDashboard(c) {
     });
     c.appendChild(acard);
   }
+
+  renderBudgetsCard(c);
 
   // ── STATS GRID (période en cours, distinct du solde cumulé ci-dessus) ────
   const gridCaption = el('div',{style:'font-size:11px;color:var(--text3);margin-bottom:8px'});
@@ -2197,6 +2210,110 @@ function openExportModal() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // GRAPHIQUES / TRENDS (Canvas SVG inline)
 // ═══════════════════════════════════════════════════════════════════════════════
+// ─── BUDGETS PAR CATÉGORIE ────────────────────────────────────────────────────
+const BUD_COLORS = { over:'#f87171', warn:'#fb923c', pace:'#facc15', under:'#a78bfa', ok:'#4ade80' };
+const BUD_LABELS = { over:'Dépassé', warn:'Seuil atteint', pace:'Rythme élevé', under:'Sous le minimum', ok:'OK' };
+
+function renderBudgetsCard(c) {
+  if (typeof evaluateBudgets !== 'function') return; // utils.js périmé : on n'affiche rien
+  let list = [];
+  try { list = evaluateBudgets(appData); } catch (err) { console.warn('[Budgets]', err); return; }
+
+  const card = el('div',{className:'card'});
+  const head = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div class="card-title" style="margin:0">🎯 BUDGETS PAR CATÉGORIE</div>
+      <button onclick="openBudgetsModal()" style="background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.3);color:var(--cyan);border-radius:10px;padding:5px 10px;font-size:11px;font-weight:700">${list.length ? 'Gérer' : 'Définir'}</button>
+    </div>`;
+  if (!list.length) {
+    card.innerHTML = head + `<div style="font-size:12px;color:var(--text3);line-height:1.5">Fixez un plafond (max) et/ou un minimum par catégorie : vous serez alerté quand le seuil approche, quand il est dépassé, ou quand le minimum n'est pas atteint en fin de cycle.</div>`;
+    c.appendChild(card);
+    return;
+  }
+  card.innerHTML = head;
+  list.forEach(b => {
+    const col = BUD_COLORS[b.status];
+    const ref = b.max != null ? b.max : b.min;           // la barre se mesure au plafond, sinon au minimum
+    const pct = Math.min(100, Math.round(b.spent / ref * 100));
+    const minPos = (b.min != null && b.max != null) ? Math.min(100, Math.round(b.min / b.max * 100)) : null;
+    const row = el('div',{style:'margin-bottom:12px'});
+    row.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;gap:8px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">${esc(b.cat)}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:${col};white-space:nowrap">${fmt(b.spent)}${b.max != null ? ' / ' + fmt(b.max) : ''}</span>
+      </div>
+      <div style="position:relative;height:8px;background:rgba(255,255,255,.07);border-radius:6px;overflow:visible">
+        <div style="height:100%;width:${pct}%;background:${col};border-radius:6px"></div>
+        ${minPos != null ? `<div title="minimum" style="position:absolute;top:-3px;left:${minPos}%;width:2px;height:14px;background:rgba(255,255,255,.6);border-radius:1px"></div>` : ''}
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;gap:8px">
+        <span style="font-size:10px;color:var(--text3);line-height:1.4">${esc(b.message)}</span>
+        <span style="font-size:9px;font-weight:700;color:${col};background:${col}1a;border-radius:6px;padding:2px 6px;white-space:nowrap;align-self:flex-start">${BUD_LABELS[b.status]}</span>
+      </div>`;
+    card.appendChild(row);
+  });
+  c.appendChild(card);
+}
+
+function openBudgetsModal() {
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div',{className:'modal-overlay'});
+  overlay.onclick = e => { if (e.target === overlay) closeModal(); };
+  const box = el('div',{className:'modal-box'});
+  const cats = Object.keys(CATS_DEP_GROUPED);
+  const alertPct = (appData.budgetSettings && appData.budgetSettings.alertPct) || 80;
+  const rows = cats.map((cat, i) => {
+    const b = (appData.budgets && appData.budgets[cat]) || {};
+    return `<div style="display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:6px;align-items:center;margin-bottom:8px">
+      <span style="font-size:12px;font-weight:600;color:var(--text)">${esc(cat)}</span>
+      <input class="form-input" id="bud-min-${i}" type="number" inputmode="numeric" min="0" placeholder="Min" value="${b.min > 0 ? b.min : ''}" style="margin:0;padding:9px;font-size:12px" />
+      <input class="form-input" id="bud-max-${i}" type="number" inputmode="numeric" min="0" placeholder="Max" value="${b.max > 0 ? b.max : ''}" style="margin:0;padding:9px;font-size:12px" />
+    </div>`;
+  }).join('');
+  box.innerHTML = `
+    <div class="modal-handle"></div>
+    <div class="modal-title"><span style="color:var(--cyan)">🎯 Budgets par catégorie</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:12px">Montants en FCFA <b>par cycle de salaire</b>. <b>Max</b> = plafond à ne pas dépasser. <b>Min</b> = dépense minimale attendue (alerte en fin de cycle si non atteinte). Laissez vide pour ne pas suivre une catégorie.</div>
+    <div style="display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:6px;margin-bottom:6px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px"><span>Catégorie</span><span>Min</span><span>Max</span></div>
+    ${rows}
+    <label class="form-label" style="margin-top:6px">Alerte « approche du plafond » à (%)</label>
+    <input class="form-input" id="bud-alert-pct" type="number" inputmode="numeric" min="1" max="100" value="${alertPct}" />
+    <button onclick="suggestBudgets()" style="width:100%;padding:11px;border-radius:12px;background:rgba(250,204,21,.1);border:1px solid rgba(250,204,21,.3);color:var(--yellow);font-weight:700;font-size:12px;margin-bottom:8px">💡 Suggérer des plafonds (moyenne +5 %)</button>
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#22d3ee,#0891b2)" onclick="saveBudgets()">Enregistrer les budgets</button>`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+}
+
+// Pré-remplit les plafonds vides d'après la moyenne des cycles précédents (sans enregistrer)
+function suggestBudgets() {
+  if (typeof analyzeSpending !== 'function') { showToast('⚠️ Mise à jour requise (assets/utils.js)'); return; }
+  const cats = Object.keys(CATS_DEP_GROUPED);
+  let filled = 0;
+  analyzeSpending(appData).categories.forEach(cc => {
+    const i = cats.indexOf(cc.cat);
+    const input = i >= 0 ? document.getElementById('bud-max-' + i) : null;
+    if (input && !input.value && cc.baseline > 0) { input.value = Math.ceil(cc.baseline * 1.05 / 1000) * 1000; filled++; }
+  });
+  showToast(filled ? `💡 ${filled} plafond(s) suggéré(s) — vérifiez puis enregistrez` : 'Pas assez d\'historique pour suggérer');
+}
+
+function saveBudgets() {
+  const cats = Object.keys(CATS_DEP_GROUPED);
+  const budgets = {};
+  for (let i = 0; i < cats.length; i++) {
+    const min = parseFloat(document.getElementById('bud-min-' + i).value);
+    const max = parseFloat(document.getElementById('bud-max-' + i).value);
+    const hasMin = min > 0, hasMax = max > 0;
+    if (hasMin && hasMax && min > max) { showToast(`⚠️ ${cats[i]} : le minimum dépasse le maximum`); return; }
+    if (hasMin || hasMax) budgets[cats[i]] = { min: hasMin ? min : null, max: hasMax ? max : null };
+  }
+  const pct = parseInt(document.getElementById('bud-alert-pct').value, 10);
+  appData.budgets = budgets;
+  appData.budgetSettings = { alertPct: pct >= 1 && pct <= 100 ? pct : 80 };
+  saveData(); closeModal(); renderCurrent();
+  showToast(Object.keys(budgets).length ? '✅ Budgets enregistrés' : 'Budgets supprimés');
+}
+
 // ─── CONSEILLER IA (Claude via proxy sécurisé) ────────────────────────────────
 // La clé Anthropic reste sur le proxy (dossier worker/) ; l'app n'a que l'URL du
 // proxy et un code d'accès personnel, saisis une fois dans ⚙️ Réglages IA.
