@@ -11,6 +11,10 @@ const MAX_QUESTION = 300;    // caractères max de la question libre
 const DEFAULT_ORIGIN = 'https://souleydiop.github.io';
 const DEFAULT_MODEL = 'claude-sonnet-5-5';
 const DEFAULT_DAILY_LIMIT = 30;
+// Sonnet 5.5 réfléchit par défaut et la réflexion compte dans max_tokens : on garde de la marge
+const DEFAULT_MAX_TOKENS = 4096;
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const DEFAULT_EFFORT = 'low';
 
 const SYSTEM_PROMPT = [
   "Tu es le conseiller budget de MonFinance, une application personnelle de suivi de finances en FCFA (XOF) utilisée au Sénégal.",
@@ -78,7 +82,7 @@ async function handle(req, env, fetchFn) {
   if (!originOk) return reply(403, { error: 'Origine non autorisée' }, ch);
 
   if (!env.ACCESS_CODE || !env.ANTHROPIC_API_KEY) return reply(500, { error: 'Proxy mal configuré (secrets manquants)' }, ch);
-  if (!timingSafeEqual(req.code || '', env.ACCESS_CODE)) return reply(401, { error: "Code d'accès invalide" }, ch);
+  if (!timingSafeEqual(String(req.code || '').trim(), String(env.ACCESS_CODE).trim())) return reply(401, { error: "Code d'accès invalide" }, ch);
 
   if ((req.contentLength || 0) > MAX_BODY * 2 || String(req.bodyText || '').length > MAX_BODY) {
     return reply(413, { error: 'Requête trop volumineuse' }, ch);
@@ -118,7 +122,8 @@ async function handle(req, env, fetchFn) {
       },
       body: JSON.stringify({
         model: env.MODEL || DEFAULT_MODEL,
-        max_tokens: 700,
+        max_tokens: Number(env.MAX_TOKENS) || DEFAULT_MAX_TOKENS,
+        output_config: { effort: EFFORTS.includes(env.EFFORT) ? env.EFFORT : DEFAULT_EFFORT },
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent }],
       }),
@@ -133,7 +138,13 @@ async function handle(req, env, fetchFn) {
   let data;
   try { data = await upstream.json(); } catch { return reply(502, { error: 'Réponse IA illisible' }, ch); }
   const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-  if (!text) return reply(502, { error: 'Réponse IA vide' }, ch);
+  if (!text) {
+    // Cas typique : réflexion qui a consommé tout max_tokens, ou refus du modèle
+    const why = data.stop_reason === 'max_tokens' ? 'réponse tronquée avant le texte (max_tokens trop bas)'
+              : data.stop_reason === 'refusal' ? 'demande refusée par le modèle'
+              : 'aucun texte renvoyé';
+    return reply(502, { error: `Réponse IA vide : ${why}` }, ch);
+  }
   return reply(200, { text }, ch);
 }
 

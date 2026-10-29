@@ -1,6 +1,6 @@
 name = "monfinance-advisor"
 main = "index.js"
-compatibility_date = "2026-10-27"
+compatibility_date = "2026-01-01"
 
 [vars]
 # Seule l'origine de ton app peut appeler le proxy (plusieurs possibles, séparées par des virgules)
@@ -9,8 +9,10 @@ ALLOWED_ORIGIN = "https://souleydiop.github.io"
 MODEL = "claude-sonnet-5-5"
 # Nombre max de demandes par jour (actif seulement si le KV RATE ci-dessous est lié)
 DAILY_LIMIT = "30"
-[secrets]
-ANTHROPIC_API_KEY = "env.ANTHROPIC_API_KEY"
+# Effort de réflexion de Claude : low (rapide, économique), medium, high…
+EFFORT = "low"
+# Plafond de la réponse (la réflexion de Sonnet 5.5 compte dedans : ne pas descendre sous 2048)
+MAX_TOKENS = "4096"
 
 # Compteur quotidien — recommandé :
 #   npx wrangler kv namespace create RATE

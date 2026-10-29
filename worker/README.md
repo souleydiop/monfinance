@@ -43,5 +43,7 @@ colle l'adresse du proxy et ton code d'accès. Puis **🤖 Demander conseil à C
 | `ALLOWED_ORIGIN` | Sites autorisés (séparés par des virgules) |
 | `MODEL` | Modèle Claude utilisé |
 | `DAILY_LIMIT` | Demandes max par jour (nécessite le KV `RATE`) |
+| `EFFORT` | Effort de réflexion : `low` (défaut), `medium`, `high`… |
+| `MAX_TOKENS` | Plafond de la réponse, réflexion incluse (défaut 4096) |
 
 Changer de code d'accès : `npx wrangler secret put ACCESS_CODE`, puis le ressaisir dans les Réglages de l'app.

@@ -23,6 +23,35 @@ describe('proxy Conseiller IA', () => {
     expect(r.body).not.toContain('sk-test');
   });
 
+  test('laisse de la marge à la réflexion de Sonnet 5.5 : max_tokens large, effort bas, pas de thinking désactivé', async () => {
+    let body;
+    await handle(mkReq(), env, (u, o) => { body = JSON.parse(o.body); return anthropicOk(); });
+    expect(body.max_tokens >= 2048).toBe(true);
+    expect(body.output_config.effort).toBe('low');
+    expect(body.thinking).toBe(undefined); // thinking:disabled renverrait une erreur 400 sur ce modèle
+  });
+
+  test('ignore les blocs « thinking » et ne renvoie que le texte', async () => {
+    const f = () => Promise.resolve({ ok: true, status: 200, json: async () => ({ content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: 'Conseil.' }] }) });
+    const r = await handle(mkReq(), env, f);
+    expect(JSON.parse(r.body).text).toBe('Conseil.');
+  });
+
+  test('réponse sans texte → 502 avec la raison (max_tokens, refus)', async () => {
+    const mk = stop => () => Promise.resolve({ ok: true, status: 200, json: async () => ({ stop_reason: stop, content: [{ type: 'thinking', thinking: '' }] }) });
+    expect(JSON.parse((await handle(mkReq(), env, mk('max_tokens'))).body).error).toContain('max_tokens');
+    expect(JSON.parse((await handle(mkReq(), env, mk('refusal'))).body).error).toContain('refusée');
+  });
+
+  test('EFFORT et MAX_TOKENS configurables, valeur invalide ignorée', async () => {
+    let body;
+    await handle(mkReq(), { ...env, EFFORT: 'medium', MAX_TOKENS: '6000' }, (u, o) => { body = JSON.parse(o.body); return anthropicOk(); });
+    expect(body.output_config.effort).toBe('medium');
+    expect(body.max_tokens).toBe(6000);
+    await handle(mkReq(), { ...env, EFFORT: 'turbo' }, (u, o) => { body = JSON.parse(o.body); return anthropicOk(); });
+    expect(body.output_config.effort).toBe('low');
+  });
+
   test('origine non autorisée → 403 sans appel à Anthropic', async () => {
     let called = false;
     const r = await handle(mkReq({ origin: 'https://evil.example' }), env, () => { called = true; return anthropicOk(); });
@@ -37,6 +66,12 @@ describe('proxy Conseiller IA', () => {
     expect((await handle(mkReq({ code: 'nope' }), env, f)).status).toBe(401);
     expect((await handle(mkReq({ code: '' }), env, f)).status).toBe(401);
     expect(calls).toBe(0);
+  });
+
+  test('espaces en début/fin du code (clavier mobile, copier-coller) tolérés des deux côtés', async () => {
+    expect((await handle(mkReq({ code: '  secret123 ' }), env, anthropicOk)).status).toBe(200);
+    expect((await handle(mkReq(), { ...env, ACCESS_CODE: 'secret123\n' }, anthropicOk)).status).toBe(200);
+    expect((await handle(mkReq({ code: 'Secret123' }), env, anthropicOk)).status).toBe(401); // la casse reste significative
   });
 
   test('secrets non configurés → 500', async () => {
