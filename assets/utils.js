@@ -20,7 +20,10 @@ const CATS_DEP_GROUPED = {
 };
 const CATS_DEP_FLAT = Object.values(CATS_DEP_GROUPED).flat();
 
-const TYPES_BANCAIRE = ['Salaire','Agios','Assurance','Épargne','Échéance prêt','Retrait app web','Retrait GAB','Virement'];
+const TYPES_BANCAIRE = ['Salaire','Revenu annexe','Agios','Assurance','Épargne','Échéance prêt','Retrait app web','Retrait GAB','Virement','Frais'];
+// Sens habituel de chaque type (le formulaire bascule automatiquement ; « Virement » reste au choix)
+const BANK_TYPE_SENS = { 'Salaire':'credit', 'Revenu annexe':'credit', 'Agios':'debit', 'Assurance':'debit', 'Épargne':'debit',
+  'Échéance prêt':'debit', 'Retrait app web':'debit', 'Retrait GAB':'debit', 'Frais':'debit' };
 const AGENCES = ['CBAO Dakar','CBAO Kaolack','BIS Dakar','BIS Kaolack','Ecobank Dakar','Ecobank Kaolack','UBA Dakar','Wave','Orange Money','Autre'];
 
 const GRP_COLORS = {
@@ -310,7 +313,7 @@ function analyzeSpending(data, now = new Date()) {
     totals: { current: curTotal, baseline: prevTotals.length ? _mean(prevTotals) : null },
     categories: [], insights: [], potentialSaving: 0,
     forecast: { nextCycle: null, trend: 'flat', projectedCurrent: null },
-    income: 0, spendRatio: null,
+    income: 0, incomeAnnexe: 0, spendRatio: null, cash: null, debt: null,
   };
   if (!result.enough) return result;
 
@@ -426,8 +429,13 @@ function analyzeSpending(data, now = new Date()) {
     .sort((a, b) => b.avg - a.avg);
 
   // ── Ratio dépenses / revenus du cycle ──────────────────────────────────────
-  const income = bancaire.filter(x => x.sens === 'credit' && _inBlock(x.date, cur)).reduce((s, x) => s + x.montant, 0);
+  // Les transferts entre ses propres comptes ne sont pas des revenus
+  const incomeOps = bancaire.filter(x => x.sens === 'credit' && !isTransfer(x) && _inBlock(x.date, cur));
+  const income = incomeOps.reduce((s, x) => s + x.montant, 0);
   result.income = income;
+  result.incomeAnnexe = incomeOps.filter(x => x.type === 'Revenu annexe').reduce((s, x) => s + x.montant, 0);
+  result.cash = getCashSummary(data, now);
+  result.debt = (data.prets && data.prets.length) ? getDebtSummary(data, now) : null;
   const budgetCards = [];
   if (income > 0) {
     result.spendRatio = curTotal / income;
@@ -443,6 +451,17 @@ function analyzeSpending(data, now = new Date()) {
     infoCards.push({ id: 'recurring', kind: 'recurring', counted: false, saving: 0, severity: 'low', icon: '📌',
       title: `${recurring.length} charge${recurring.length > 1 ? 's' : ''} récurrente${recurring.length > 1 ? 's' : ''} détectée${recurring.length > 1 ? 's' : ''}`,
       detail: `≈ ${fmt(recurring.reduce((s, r) => s + r.avg, 0))} par cycle : ${top}. À renégocier ou résilier si non essentielles.` });
+  }
+
+  if (result.cash && result.cash.reste > 0 && result.cash.total > 0) {
+    infoCards.push({ id: 'cash', kind: 'cash', counted: false, saving: 0, severity: 'medium', icon: '💵',
+      title: 'Cash non ventilé',
+      detail: `${fmt(result.cash.reste)} retirés en espèces ce cycle ne sont rattachés à aucune dépense (sur ${fmt(result.cash.total)} retirés). Ventilez-les depuis la Banque (✂️) pour savoir où part votre cash.` });
+  }
+  if (result.debt && result.debt.ratio != null && result.debt.ratio > 0.33) {
+    budgetCards.push({ id: 'debt:ratio', kind: 'debt', counted: false, saving: 0, severity: 'high', icon: '🏦',
+      title: 'Taux d\'endettement élevé',
+      detail: `Les mensualités de crédit (${fmt(result.debt.mensualites)}) représentent ${Math.round(result.debt.ratio * 100)} % des revenus du cycle. Au-delà de 33 %, la marge de manœuvre devient fragile.` });
   }
 
   counted.sort((a, b) => b.saving - a.saving);
@@ -466,6 +485,213 @@ function analyzeSpending(data, now = new Date()) {
   }
   if (elapsedFrac >= 0.3) result.forecast.projectedCurrent = curTotal / elapsedFrac;
   return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUTO-CATÉGORISATION — apprend de l'historique, retombe sur des mots-clés
+// ═══════════════════════════════════════════════════════════════════════════════
+function _matchKeywords(text) {
+  const t = String(text || '').toLowerCase();
+  for (const { cat, kws } of CATEGORY_MIGRATION_RULES) if (kws.some(k => t.includes(k))) return cat;
+  return null;
+}
+function _topCount(arr) {
+  const c = {}; arr.forEach(x => { c[x] = (c[x] || 0) + 1; });
+  const [top, n] = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return { top, share: n / arr.length };
+}
+
+// → { cat, source: 'historique' | 'mots-clés', confidence } ou null
+function suggestCategory(label, depenses) {
+  const key = normalizeLabel(label);
+  if (!key || key.length < 2) return null;
+  const hist = (depenses || [])
+    .map(d => ({ key: normalizeLabel(d.label), cat: getGrpForCat(d.categorie) }))
+    .filter(h => h.key && h.cat !== 'Autre');
+
+  // 1) même libellé déjà saisi → on reprend sa catégorie la plus fréquente
+  const same = hist.filter(h => h.key === key);
+  if (same.length) { const c = _topCount(same.map(h => h.cat)); return { cat: c.top, source: 'historique', confidence: c.share }; }
+
+  // 2) mots du libellé : vote pondéré par la « pureté » du mot dans l'historique
+  const score = {};
+  key.split(' ').filter(t => t.length >= 3).forEach(t => {
+    const m = hist.filter(h => h.key.split(' ').includes(t));
+    if (m.length < 2) return;
+    const c = _topCount(m.map(h => h.cat));
+    if (c.share >= 0.7) score[c.top] = (score[c.top] || 0) + c.share * Math.min(m.length, 5);
+  });
+  const best = Object.entries(score).sort((a, b) => b[1] - a[1])[0];
+  if (best) return { cat: best[0], source: 'historique', confidence: Math.min(1, best[1] / 5) };
+
+  // 3) mots-clés par défaut
+  const kw = _matchKeywords(label);
+  return kw ? { cat: kw, source: 'mots-clés', confidence: 0.5 } : null;
+}
+
+const BANK_TYPE_RULES = [
+  { type: 'Agios',         kws: ['agios', 'agio', 'commission de compte', 'tenue de compte'] },
+  { type: 'Assurance',     kws: ['assurance'] },
+  { type: 'Échéance prêt', kws: ['échéance', 'echeance', 'mensualité', 'mensualite', 'crédit immo', 'credit immo', 'crédit auto', 'credit auto', 'prêt', 'pret '] },
+  { type: 'Épargne',       kws: ['épargne', 'epargne'] },
+  { type: 'Retrait GAB',   kws: ['gab', 'retrait', 'distributeur'] },
+  { type: 'Salaire',       kws: ['salaire', 'paie ', 'virement employeur'] },
+  { type: 'Revenu annexe', kws: ['loyer perçu', 'loyer percu', 'freelance', 'vente', 'prime', 'dividende', 'mission', 'bonus', 'revenu annexe'] },
+  { type: 'Frais',         kws: ['frais'] },
+];
+// Propose le type d'opération bancaire d'après la note saisie
+function suggestBankType(note) {
+  const t = String(note || '').toLowerCase() + ' ';
+  const r = BANK_TYPE_RULES.find(({ kws }) => kws.some(k => t.includes(k)));
+  return r ? r.type : null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TRANSFERTS ENTRE COMPTES & COMPTES (Wave, Orange Money, banques…)
+// Un compte = la valeur du champ « agence » des opérations bancaires.
+// Un transfert = 2 opérations liées par `transfertId` (ni revenu, ni dépense).
+// ═══════════════════════════════════════════════════════════════════════════════
+const WALLET_ACCOUNTS = ['Wave', 'Orange Money'];
+function isTransfer(op) { return Boolean(op && op.transfertId); }
+
+function computeAccountBalances(data) {
+  const bancaire = (data && data.bancaire) || [];
+  const comptes = (data && data.comptes) || {};
+  const names = new Set([...WALLET_ACCOUNTS, ...Object.keys(comptes)]);
+  bancaire.forEach(x => { if (x.agence) names.add(x.agence); });
+  return [...names].map(nom => {
+    const ops = bancaire.filter(x => x.agence === nom);
+    const credits = ops.filter(x => x.sens === 'credit').reduce((s, x) => s + x.montant, 0);
+    const debits = ops.filter(x => x.sens === 'debit').reduce((s, x) => s + x.montant, 0);
+    const init = Number(comptes[nom] && comptes[nom].soldeInitial) || 0;
+    return { nom, soldeInitial: init, credits, debits, solde: init + credits - debits, count: ops.length, wallet: WALLET_ACCOUNTS.includes(nom) };
+  }).filter(a => a.wallet || a.count > 0 || a.soldeInitial !== 0)
+    .sort((a, b) => {
+      const ia = WALLET_ACCOUNTS.indexOf(a.nom), ib = WALLET_ACCOUNTS.indexOf(b.nom);
+      if (ia >= 0 || ib >= 0) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);   // Wave, Orange Money d'abord
+      return a.nom.localeCompare(b.nom);
+    });
+}
+
+// Construit les opérations d'un transfert : sortie, entrée, et frais éventuels (vraie dépense)
+function buildTransferOps({ from, to, montant, frais = 0, date, note = '' }, newId) {
+  const tid = 'tr-' + newId();
+  const suffix = note ? ' — ' + note : '';
+  const ops = [
+    { id: newId(), type: 'Virement', sens: 'debit',  montant, date, agence: from, note: `Transfert vers ${to}${suffix}`, transfertId: tid },
+    { id: newId(), type: 'Virement', sens: 'credit', montant, date, agence: to,   note: `Transfert depuis ${from}${suffix}`, transfertId: tid },
+  ];
+  if (frais > 0) ops.push({ id: newId(), type: 'Frais', sens: 'debit', montant: frais, date, agence: from, note: `Frais de transfert ${from} → ${to}` });
+  return ops;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RETRAITS CASH À VENTILER — un retrait GAB se répartit en dépenses (retraitId)
+// ═══════════════════════════════════════════════════════════════════════════════
+const CASH_TYPES = ['Retrait GAB', 'Retrait app web'];
+function isCashWithdrawal(op) { return Boolean(op) && op.sens === 'debit' && CASH_TYPES.includes(op.type); }
+
+function getCashStatus(data, retraitId) {
+  const op = ((data && data.bancaire) || []).find(x => String(x.id) === String(retraitId));
+  if (!op) return null;
+  const items = ((data && data.depenses) || []).filter(d => d.retraitId != null && String(d.retraitId) === String(retraitId));
+  const ventile = items.reduce((s, d) => s + d.montant, 0);
+  return { montant: op.montant, ventile, reste: op.montant - ventile, items, complet: ventile >= op.montant };
+}
+function getCashSummary(data, now = new Date()) {
+  const bancaire = (data && data.bancaire) || [];
+  const cur = getSalaryPeriod(bancaire, now);
+  const retraits = bancaire.filter(x => isCashWithdrawal(x) && _inBlock(x.date, cur));
+  let total = 0, ventile = 0, reste = 0;
+  retraits.forEach(r => {
+    const st = getCashStatus(data, r.id);
+    total += r.montant; ventile += Math.min(r.montant, st.ventile); reste += Math.max(0, st.reste);
+  });
+  return { count: retraits.length, total, ventile, reste };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CRÉDITS (immobilier, auto, bancaire) — échéancier d'amortissement à mensualité constante
+// prêt = { id, kind, label, capital, taux (% annuel), dureeMois, premiereEcheance 'YYYY-MM-DD',
+//          mensualite? (sinon calculée), assurance? (mensuelle, hors amortissement), agence?,
+//          calage? { date, capitalRestant } (pour recaler sur le tableau d'amortissement réel) }
+// ═══════════════════════════════════════════════════════════════════════════════
+function monthlyPayment(capital, tauxAnnuelPct, n) {
+  if (!(capital > 0) || !(n > 0)) return 0;
+  const r = (Number(tauxAnnuelPct) || 0) / 1200;
+  if (r === 0) return capital / n;
+  return capital * r / (1 - Math.pow(1 + r, -n));
+}
+function _loanDate(startStr, k) {            // même jour du mois, ramené à la fin de mois si besoin
+  const [y, m, d] = startStr.split('-').map(Number);
+  const last = new Date(y, m - 1 + k + 1, 0).getDate();
+  return new Date(y, m - 1 + k, Math.min(d, last));
+}
+
+function buildAmortization(loan) {
+  const capital = Number(loan.capital) || 0;
+  const r = (Number(loan.taux) || 0) / 1200;
+  const duree = parseInt(loan.dureeMois, 10) || 0;
+  if (!(capital > 0) || !(duree > 0) || !loan.premiereEcheance) return { rows: [], mensualite: 0, soldeDepart: capital, offset: 0 };
+
+  let k = 0, balance = capital, offset = 0;
+  if (loan.calage && Number(loan.calage.capitalRestant) > 0 && loan.calage.date) {
+    const cal = new Date(loan.calage.date + 'T00:00:00');
+    while (_loanDate(loan.premiereEcheance, k) <= cal && k < duree + 600) k++;   // 1re échéance après le calage
+    offset = k;
+    balance = Number(loan.calage.capitalRestant);
+  }
+  const restantMois = Math.max(1, duree - offset);
+  const M = Number(loan.mensualite) > 0 ? Number(loan.mensualite) : monthlyPayment(balance, loan.taux, restantMois);
+  const soldeDepart = balance;
+
+  const rows = [];
+  for (let i = 0; balance > 0.5 && i < 600; i++) {
+    const interets = balance * r;
+    if (M <= interets) break;                       // la mensualité ne couvre pas les intérêts : pas d'amortissement
+    const principal = Math.min(balance, M - interets);
+    balance -= principal;
+    rows.push({ n: offset + i + 1, date: _loanDate(loan.premiereEcheance, offset + i),
+                echeance: principal + interets, interets, capital: principal, restant: Math.max(0, balance) });
+  }
+  return { rows, mensualite: M, soldeDepart, offset };
+}
+
+function loanStatus(loan, now = new Date()) {
+  const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
+  const { rows, mensualite, soldeDepart } = buildAmortization(loan);
+  const past = rows.filter(r => r.date < today0);
+  const future = rows.filter(r => r.date >= today0);
+  const restant = past.length ? past[past.length - 1].restant : soldeDepart;
+  const capitalInit = Number(loan.capital) || 0;
+  const assurance = Number(loan.assurance) || 0;
+  return {
+    mensualite, assurance, coutMensuel: mensualite + assurance,
+    restant, pctRembourse: capitalInit > 0 ? Math.min(1, Math.max(0, 1 - restant / capitalInit)) : 0,
+    next: future[0] || null, moisRestants: future.length,
+    dateFin: rows.length ? rows[rows.length - 1].date : null,
+    interetsRestants: future.reduce((s, r) => s + r.interets, 0),
+    termine: rows.length > 0 && future.length === 0,
+    rows,
+  };
+}
+
+function getDebtSummary(data, now = new Date()) {
+  const prets = (data && data.prets) || [];
+  const bancaire = (data && data.bancaire) || [];
+  const cur = getSalaryPeriod(bancaire, now);
+  let mensualites = 0, restant = 0, actifs = 0;
+  prets.forEach(l => {
+    const st = loanStatus(l, now);
+    if (!st.termine) { mensualites += st.coutMensuel; actifs++; }
+    restant += st.restant;
+  });
+  let income = bancaire.filter(x => x.sens === 'credit' && !isTransfer(x) && _inBlock(x.date, cur)).reduce((s, x) => s + x.montant, 0);
+  if (!(income > 0)) {                               // repli : dernier salaire connu
+    const sal = bancaire.filter(x => x.type === 'Salaire' && x.sens === 'credit').sort((a, b) => b.date.localeCompare(a.date))[0];
+    income = sal ? sal.montant : 0;
+  }
+  return { count: prets.length, actifs, mensualites, restant, income, ratio: income > 0 ? mensualites / income : null };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -542,6 +768,10 @@ function buildAiSummary(res) {
     categories: res.categories.slice(0, 12).map(c => ({ categorie: c.cat, ce_cycle: r0(c.current), moyenne: r0(c.baseline), nb_depenses: c.count })),
     pistes: res.insights.slice(0, 8).map(i => ({ type: i.kind, titre: i.title, detail: i.detail, economie: r0(i.saving), chiffree: i.counted })),
     economies_potentielles: r0(res.potentialSaving),
+    revenus_annexes_cycle: r0(res.incomeAnnexe),
+    cash_non_ventile: res.cash ? r0(res.cash.reste) : null,
+    credits: res.debt ? { nb_actifs: res.debt.actifs, mensualites_totales: r0(res.debt.mensualites), capital_restant_total: r0(res.debt.restant),
+                          taux_endettement: res.debt.ratio == null ? null : Math.round(res.debt.ratio * 100) / 100 } : null,
   };
 }
 
@@ -555,6 +785,10 @@ if (typeof module !== 'undefined' && module.exports) {
     isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel,
     getPreviousSalaryPeriod, isInPreviousSalaryPeriod,
     normalizeLabel, getPeriodBlocks, analyzeSpending, evaluateBudgets, buildAiSummary, CUT_RATES, FIXED_CATS,
+    suggestCategory, suggestBankType, BANK_TYPE_RULES, BANK_TYPE_SENS,
+    isTransfer, computeAccountBalances, buildTransferOps, WALLET_ACCOUNTS,
+    isCashWithdrawal, getCashStatus, getCashSummary, CASH_TYPES,
+    monthlyPayment, buildAmortization, loanStatus, getDebtSummary,
     isTokenValid, isValidDriveBackup, isDriveDataNewer, pickDriveFileId,
     DepenseSchema, BancaireSchema, RevenuSchema, AppDataSchema,
   };
