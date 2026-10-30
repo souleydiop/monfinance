@@ -175,17 +175,17 @@
       -webkit-backdrop-filter: blur(20px);
       border-top: 1px solid var(--border);
       display: flex; gap: 4px;
-      padding: 10px 14px calc(10px + var(--safe-bot));
+      padding: 10px 8px calc(10px + var(--safe-bot));
       z-index: 100;
     }
     .nav-btn {
       flex: 1; background: transparent; border: 1px solid transparent;
-      border-radius: 14px; padding: 9px 4px;
+      border-radius: 14px; padding: 9px 2px; min-width: 0;
       color: var(--text4); transition: all 0.2s;
       display: flex; flex-direction: column; align-items: center; gap: 3px;
     }
     .nav-btn .nav-icon { font-size: 18px; line-height: 1; }
-    .nav-btn .nav-label { font-size: 10px; font-weight: 500; }
+    .nav-btn .nav-label { font-size: 9.5px; font-weight: 500; }
     .nav-btn.active { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.25); color: var(--cyan); }
     .nav-btn:active { transform: scale(0.95); }
 
@@ -494,6 +494,10 @@
         <span class="nav-icon">🏦</span>
         <span class="nav-label">Banque</span>
       </button>
+      <button class="nav-btn" id="nav-comptes" onclick="switchTab('comptes')">
+        <span class="nav-icon">💼</span>
+        <span class="nav-label">Comptes</span>
+      </button>
       <button class="nav-btn" id="nav-charts" onclick="switchTab('charts')">
         <span class="nav-icon">📈</span>
         <span class="nav-label">Trends</span>
@@ -534,7 +538,7 @@ const CORRECT_PIN = '1234';
 const CATS_REV = ['Emploi', 'Freelance', 'Immobilier', 'Remboursement', 'Autre'];
 
 const REV_COLORS = {Emploi:'#22d3ee',Freelance:'#a78bfa',Immobilier:'#34d399',Remboursement:'#4ade80',Autre:'#94a3b8'};
-const BANK_COLORS = {Salaire:'#22d3ee',Agios:'#f87171',Assurance:'#fb923c','Épargne':'#a78bfa','Échéance prêt':'#f472b6','Retrait app web':'#facc15','Retrait GAB':'#fbbf24',Virement:'#34d399'};
+const BANK_COLORS = {'Revenu annexe':'#2dd4bf',Frais:'#fca5a5',Salaire:'#22d3ee',Agios:'#f87171',Assurance:'#fb923c','Épargne':'#a78bfa','Échéance prêt':'#f472b6','Retrait app web':'#facc15','Retrait GAB':'#fbbf24',Virement:'#34d399'};
 
 function migrateData() {
   if (appData._catMigration >= 1) return;
@@ -575,6 +579,8 @@ const DEFAULT_DATA = {
   favoris: { bancaire: [], depenses: [] },
   budgets: {},
   budgetSettings: { alertPct: 80 },
+  prets: [],
+  comptes: {},
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -590,6 +596,9 @@ let activeFilterOps = 'Tous';
 let activeFilterOpsMonth = 'Tous';
 let activeFilterOpsYear = 'Tous';
 let activeFilterOpsCat = 'Tous';
+// Un transfert entre ses propres comptes n'est ni un revenu ni une dépense
+const noXfer = arr => arr.filter(x => !(typeof isTransfer === 'function' && isTransfer(x)));
+let catAutoLocked = false, bankTypeLocked = false;
 let insightsExpanded = false; // carte Analyse intelligente : afficher toutes les pistes
 let modalSaveTarget = 'real'; // 'real' | 'favori' — cible d'enregistrement du formulaire bancaire/dépense
 
@@ -611,6 +620,8 @@ function ensureDataShape(data) {
   if (!Array.isArray(data.favoris.depenses)) data.favoris.depenses = [];
   if (!data.budgets || typeof data.budgets !== 'object' || Array.isArray(data.budgets)) data.budgets = {};
   if (!data.budgetSettings || typeof data.budgetSettings !== 'object') data.budgetSettings = { alertPct: 80 };
+  if (!Array.isArray(data.prets)) data.prets = [];
+  if (!data.comptes || typeof data.comptes !== 'object' || Array.isArray(data.comptes)) data.comptes = {};
   return data;
 }
 const ensureFavoris = ensureDataShape; // ancien nom, conservé
@@ -730,6 +741,7 @@ function render() {
     else if (currentTab === 'operations') renderOperations(c);
     else if (currentTab === 'depenses') renderDepenses(c);
     else if (currentTab === 'bancaire') renderBancaire(c);
+    else if (currentTab === 'comptes') renderComptes(c);
     else if (currentTab === 'charts') renderCharts(c);
   } catch (err) {
     console.error('[Render error]', currentTab, err);
@@ -743,8 +755,8 @@ function render() {
 function renderDashboard(c) {
   const bancaireMonth = appData.bancaire.filter(x=>isInSalaryPeriod(x.date, appData.bancaire));
   const depensesMonth = appData.depenses.filter(x=>isInSalaryPeriod(x.date, appData.bancaire));
-  const credits = bancaireMonth.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
-  const debits  = bancaireMonth.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const credits = noXfer(bancaireMonth).filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const debits  = noXfer(bancaireMonth).filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde   = credits - debits;
   const pos     = solde >= 0;
   const depTotal = depensesMonth.reduce((s,x)=>s+x.montant,0);
@@ -848,6 +860,24 @@ function renderDashboard(c) {
     } catch (err) { console.warn('[Budgets]', err); }
   }
 
+  // Crédits : échéances proches et taux d'endettement ; cash non ventilé
+  try {
+    if (typeof loanStatus === 'function' && appData.prets && appData.prets.length) {
+      const t0 = new Date(); t0.setHours(0,0,0,0);
+      appData.prets.forEach(l => {
+        const st = loanStatus(l); if (!st.next) return;
+        const d = Math.round((st.next.date - t0) / 86400000);
+        if (d <= 5) alerts.unshift({ color:'#f472b6', icon:'⏰', msg:`Échéance « ${esc(l.label)} » ${d <= 0 ? "aujourd'hui" : 'dans ' + d + ' j'} : ${fmt(st.coutMensuel)}` });
+      });
+      const ds = getDebtSummary(appData);
+      if (ds.ratio != null && ds.ratio > 0.33) alerts.unshift({ color:'#f87171', icon:'🏦', msg:`Taux d'endettement ${Math.round(ds.ratio*100)} % (mensualités ${fmt(ds.mensualites)} / revenus) — au-delà de 33 %` });
+    }
+    if (typeof getCashSummary === 'function') {
+      const cs = getCashSummary(appData);
+      if (cs.reste > 0) alerts.push({ color:'#facc15', icon:'💵', msg:`${fmt(cs.reste)} retirés en cash non ventilés — Banque › ✂️` });
+    }
+  } catch (err) { console.warn('[Alertes crédits]', err); }
+
   if (alerts.length > 0) {
     const acard = el('div',{className:'card'});
     acard.innerHTML = '<div class="card-title">🔔 ALERTES & RECOMMANDATIONS</div>';
@@ -860,14 +890,15 @@ function renderDashboard(c) {
   }
 
   renderBudgetsCard(c);
+  renderAnnexeCard(c, bancaireMonth);
 
   // ── STATS GRID (période en cours, distinct du solde cumulé ci-dessus) ────
   const gridCaption = el('div',{style:'font-size:11px;color:var(--text3);margin-bottom:8px'});
   gridCaption.textContent = `Sur la période en cours (${fmtPeriodLabel(appData.bancaire)}) :`;
   c.appendChild(gridCaption);
   const grid = el('div',{className:'stats-grid'});
-  [{l:'Crédits',v:credits,col:'#22d3ee',ic:'↑',n:bancaireMonth.filter(x=>x.sens==='credit').length},
-   {l:'Débits', v:debits, col:'#f472b6',ic:'↓',n:bancaireMonth.filter(x=>x.sens==='debit').length}].forEach(({l,v,col,ic,n}) => {
+  [{l:'Crédits',v:credits,col:'#22d3ee',ic:'↑',n:noXfer(bancaireMonth).filter(x=>x.sens==='credit').length},
+   {l:'Débits', v:debits, col:'#f472b6',ic:'↓',n:noXfer(bancaireMonth).filter(x=>x.sens==='debit').length}].forEach(({l,v,col,ic,n}) => {
     const card = el('div',{className:'stat-card',style:`background:${col}11;border:1px solid ${col}33`});
     card.innerHTML = `<div class="stat-icon">${ic}</div><div class="stat-label">${l}</div><div class="stat-value" style="color:${col}">${fmt(v)}</div><div class="stat-count">${n} opération${n>1?'s':''}</div>`;
     grid.appendChild(card);
@@ -895,7 +926,7 @@ function renderDashboard(c) {
 
   // ── DÉBITS PAR TYPE ──────────────────────────────────────────────────────
   const byType = {};
-  bancaireMonth.filter(x=>x.sens==='debit').forEach(d => {
+  noXfer(bancaireMonth).filter(x=>x.sens==='debit').forEach(d => {
     byType[d.type] = (byType[d.type]||0) + d.montant;
   });
   const maxT = Math.max(...Object.values(byType),1);
@@ -1195,8 +1226,8 @@ function renderDepenses(c) {
 // ─── BANCAIRE — Journal avec solde cumulé ────────────────────────────────────
 function renderBancaire(c) {
   const monthAll = appData.bancaire.filter(x=>isInSalaryPeriod(x.date, appData.bancaire));
-  const credits = monthAll.filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
-  const debits = monthAll.filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
+  const credits = noXfer(monthAll).filter(x=>x.sens==='credit').reduce((s,x)=>s+x.montant,0);
+  const debits = noXfer(monthAll).filter(x=>x.sens==='debit').reduce((s,x)=>s+x.montant,0);
   const solde = credits - debits;
 
   renderSuggestions(c, 'bancaire');
@@ -1254,6 +1285,7 @@ function renderBancaire(c) {
     const isC = item.sens === 'credit';
     const col = BANK_COLORS[item.type]||'#94a3b8';
     const balPos = item._balance >= 0;
+    const cash = (typeof isCashWithdrawal === 'function' && isCashWithdrawal(item)) ? getCashStatus(appData, item.id) : null;
     const row = el('div',{className:'bank-row',style:`background:${col}0d;border:1px solid ${col}22`});
     row.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -1265,10 +1297,13 @@ function renderBancaire(c) {
           </div>
           <div class="bank-meta">📅 ${fmtDate(item.date)} &nbsp;·&nbsp; 🏦 ${esc(item.agence)}</div>
           ${item.note?`<div class="bank-note">${esc(item.note)}</div>`:''}
+          ${cash ? `<div style="font-size:11px;margin-top:5px;color:${cash.complet?'#4ade80':'#facc15'}">${cash.complet ? '✅ Cash entièrement ventilé' : '💵 Reste à ventiler : ' + fmt(cash.reste)}</div>` : ''}
+          ${isTransfer(item) ? `<div style="font-size:11px;margin-top:5px;color:var(--text3)">↔ Transfert entre comptes (hors revenus/dépenses)</div>` : ''}
         </div>
         <div style="text-align:right;margin-left:10px">
           <div class="item-amount" style="color:${isC?'var(--cyan)':'var(--pink)'}">${isC?'+':'-'}${fmt(item.montant)}</div>
           <div style="font-size:10px;color:${balPos?'#4ade80':'#f87171'};font-family:var(--mono);font-weight:700;margin-top:3px">Solde: ${fmt(item._balance)}</div>
+          ${cash ? `<button class="item-dup" data-id="${item.id}" onclick="openVentilation(this.dataset.id)" title="Ventiler">✂️</button>` : ''}
           <button class="item-del" data-section="bancaire" data-id="${item.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
         </div>
       </div>`;
@@ -1300,6 +1335,10 @@ function deleteItem(section, id) {
 }
 
 function confirmDelete(section, id) {
+  if (section === 'bancaire') {   // un transfert = 2 opérations liées : on supprime les deux
+    const op = appData.bancaire.find(x => String(x.id) === String(id));
+    if (op && op.transfertId) appData.bancaire = appData.bancaire.filter(x => x.transfertId !== op.transfertId);
+  }
   appData[section] = appData[section].filter(x => String(x.id) !== String(id));
   saveData();
   document.getElementById('modal-container').innerHTML = '';
@@ -1616,12 +1655,14 @@ function submitRevenu() {
 }
 
 function buildModalDepense(overlay, isFavori) {
+  catAutoLocked = false;
   const box = el('div',{className:'modal-box'});
   box.innerHTML = `
     <div class="modal-handle"></div>
     <div class="modal-title"><span style="color:var(--pink)">${isFavori?'⭐ Nouveau favori dépense':'➖ Nouvelle dépense'}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
     <label class="form-label">Libellé</label>
-    <input class="form-input" id="d-label" type="text" placeholder="Ex: Courses marché" />
+    <input class="form-input" id="d-label" type="text" placeholder="Ex: Courses marché" oninput="onDepLabelInput(this.value)" />
+    <div id="cat-hint" style="font-size:11px;color:var(--cyan);margin:-8px 0 10px;min-height:14px"></div>
     <label class="form-label">Montant (FCFA)</label>
     <input class="form-input" id="d-montant" type="number" placeholder="Ex: 35000" />
     ${isFavori ? '' : `<label class="form-label">Date</label>
@@ -1662,6 +1703,7 @@ function toggleCatGroup(grp) {
   buildCatPicker(selectedCat);
 }
 function selectCat(cat) {
+  catAutoLocked = true;   // choix manuel : l'auto-catégorisation ne l'écrase plus
   selectedCat = cat;
   openCatGroup = null;
   buildCatPicker(cat);
@@ -1686,6 +1728,7 @@ function submitDepense() {
 
 function buildModalBancaire(overlay, isFavori) {
   currentSens = 'credit';
+  bankTypeLocked = false;
   const box = el('div',{className:'modal-box'});
   box.innerHTML = `
     <div class="modal-handle"></div>
@@ -1696,7 +1739,7 @@ function buildModalBancaire(overlay, isFavori) {
       <button class="sens-btn" id="sens-debit" onclick="setSens('debit')">Débit ↓</button>
     </div>
     <label class="form-label">Type d'opération</label>
-    <select class="form-select" id="b-type">${TYPES_BANCAIRE.map(t=>`<option>${t}</option>`).join('')}</select>
+    <select class="form-select" id="b-type" onchange="onBankTypeChange(this.value)">${TYPES_BANCAIRE.map(t=>`<option>${t}</option>`).join('')}</select>
     <label class="form-label">Montant (FCFA)</label>
     <input class="form-input" id="b-montant" type="number" placeholder="Ex: 650000" />
     ${isFavori ? '' : `<label class="form-label">Date</label>
@@ -1704,7 +1747,8 @@ function buildModalBancaire(overlay, isFavori) {
     <label class="form-label">Agence / Canal</label>
     <select class="form-select" id="b-agence">${AGENCES.map(a=>`<option>${a}</option>`).join('')}</select>
     <label class="form-label">Note (optionnel)</label>
-    <input class="form-input" id="b-note" type="text" placeholder="Ex: Prélèvement automatique" />
+    <input class="form-input" id="b-note" type="text" placeholder="Ex: Prélèvement automatique" oninput="onBankNoteInput(this.value)" />
+    <div id="b-hint" style="font-size:11px;color:var(--cyan);margin:-8px 0 10px;min-height:14px"></div>
     <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5)" onclick="submitBancaire()">${isFavori?'Enregistrer le favori':'Enregistrer'}</button>`;
   overlay.appendChild(box);
   return overlay;
@@ -2210,6 +2254,365 @@ function openExportModal() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // GRAPHIQUES / TRENDS (Canvas SVG inline)
 // ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUTO-CATÉGORISATION, VENTILATION CASH, COMPTES, CRÉDITS, REVENUS ANNEXES
+// ═══════════════════════════════════════════════════════════════════════════════
+const fmtD = d => d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'});
+const encN = s => encodeURIComponent(s);
+const decN = s => decodeURIComponent(s);
+
+// Fenêtre « feuille » (comme les autres écrans) et fenêtre centrée
+function openSheet(title, color, html) {
+  const mc = document.getElementById('modal-container');
+  mc.innerHTML = '';
+  const overlay = el('div',{className:'modal-overlay'});
+  overlay.onclick = e => { if (e.target === overlay) closeModal(); };
+  const box = el('div',{className:'modal-box'});
+  box.innerHTML = `<div class="modal-handle"></div><div class="modal-title"><span style="color:${color}">${title}</span><button class="modal-close" onclick="closeModal()">✕</button></div>${html}`;
+  overlay.appendChild(box);
+  mc.appendChild(overlay);
+}
+
+// ── Auto-catégorisation (dépense) et type suggéré (opération bancaire) ───────
+function onDepLabelInput(v) {
+  if (typeof suggestCategory !== 'function') return;
+  const hint = document.getElementById('cat-hint');
+  const s = suggestCategory(v, appData.depenses);
+  if (!s) { if (hint) hint.textContent = ''; return; }
+  if (!catAutoLocked) buildCatPicker(s.cat);
+  if (hint) hint.innerHTML = `🤖 Catégorie suggérée : <b>${esc(s.cat)}</b> (${s.source})` +
+    (catAutoLocked && selectedCat !== s.cat ? ` — <a style="text-decoration:underline" onclick="catAutoLocked=false;buildCatPicker('${s.cat}');this.parentNode.textContent=''">appliquer</a>` : '');
+}
+function onBankTypeChange(type) {
+  bankTypeLocked = true;                                   // choix manuel : plus d'écrasement automatique
+  const sens = typeof BANK_TYPE_SENS !== 'undefined' ? BANK_TYPE_SENS[type] : null;
+  if (sens) setSens(sens);                                 // Salaire/Revenu annexe → Crédit ; retraits, agios… → Débit
+}
+function onBankNoteInput(v) {
+  if (typeof suggestBankType !== 'function') return;
+  const hint = document.getElementById('b-hint');
+  const t = suggestBankType(v);
+  if (!t) { if (hint) hint.textContent = ''; return; }
+  if (!bankTypeLocked) {
+    const sel = document.getElementById('b-type');
+    if (sel) sel.value = t;
+    if (BANK_TYPE_SENS[t]) setSens(BANK_TYPE_SENS[t]);
+  }
+  if (hint) hint.innerHTML = `🤖 Type suggéré : <b>${esc(t)}</b>`;
+}
+
+// ── Ventilation d'un retrait cash en dépenses ────────────────────────────────
+function openVentilation(id) {
+  const op = appData.bancaire.find(x => String(x.id) === String(id));
+  const st = getCashStatus(appData, id);
+  if (!op || !st) return;
+  const items = st.items.map(d => {
+    const col = getCatColor(d.categorie);
+    return `<div class="item-row" style="background:${col}0a;border:1px solid ${col}22">
+      <div class="item-header">
+        <div style="flex:1;min-width:0"><div class="item-title">${esc(d.label)}</div><span class="badge" style="background:${col}22;color:${col}">${esc(d.categorie)}</span> <span style="font-size:10px;color:var(--text3)">${fmtDate(d.date)}</span></div>
+        <div style="text-align:right;margin-left:10px"><div class="item-amount" style="color:var(--pink)">-${fmt(d.montant)}</div>
+          <button class="item-del" onclick="removeVentilation('${op.id}','${d.id}')">🗑</button></div>
+      </div></div>`;
+  }).join('');
+  const cats = CATS_DEP_FLAT.map(c => `<option>${esc(c)}</option>`).join('');
+  openSheet('✂️ Ventiler le retrait', 'var(--yellow)', `
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <div style="flex:1;background:rgba(255,255,255,.04);border-radius:12px;padding:10px;text-align:center"><div style="font-size:10px;color:var(--text3)">RETRAIT · ${fmtDate(op.date)}</div><div style="font-family:var(--mono);font-weight:700;color:var(--pink)">${fmt(op.montant)}</div></div>
+      <div style="flex:1;background:rgba(255,255,255,.04);border-radius:12px;padding:10px;text-align:center"><div style="font-size:10px;color:var(--text3)">RESTE À VENTILER</div><div style="font-family:var(--mono);font-weight:700;color:${st.complet?'#4ade80':'#facc15'}">${fmt(Math.max(0, st.reste))}</div></div>
+    </div>
+    ${items || '<div style="font-size:12px;color:var(--text3);margin-bottom:12px">Aucune dépense rattachée pour l\'instant.</div>'}
+    <div style="font-size:11px;color:var(--text3);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.5px">Ajouter une dépense payée en cash</div>
+    <input class="form-input" id="vt-label" type="text" placeholder="Ex: Taxi, marché, boutique…" oninput="onVentLabelInput(this.value)" />
+    <div id="vt-hint" style="font-size:11px;color:var(--cyan);margin:-8px 0 10px;min-height:14px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <input class="form-input" id="vt-montant" type="number" inputmode="numeric" min="0" placeholder="Montant" value="${st.reste > 0 ? st.reste : ''}" />
+      <input class="form-input" id="vt-date" type="date" value="${today()}" />
+    </div>
+    <select class="form-select" id="vt-cat">${cats}</select>
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#facc15,#ca8a04);color:#0f172a" onclick="addVentilation('${op.id}')">+ Ajouter à la ventilation</button>`);
+}
+function onVentLabelInput(v) {
+  if (typeof suggestCategory !== 'function') return;
+  const s = suggestCategory(v, appData.depenses), hint = document.getElementById('vt-hint');
+  if (s) { const sel = document.getElementById('vt-cat'); if (sel) sel.value = s.cat; }
+  if (hint) hint.innerHTML = s ? `🤖 Catégorie suggérée : <b>${esc(s.cat)}</b> (${s.source})` : '';
+}
+function addVentilation(id) {
+  const op = appData.bancaire.find(x => String(x.id) === String(id));
+  const st = getCashStatus(appData, id);
+  const label = document.getElementById('vt-label').value.trim();
+  const montant = parseFloat(document.getElementById('vt-montant').value);
+  if (!label || !(montant > 0)) { showToast('⚠️ Libellé et montant requis'); return; }
+  if (montant > st.reste + 0.5) { showToast(`⚠️ Dépasse le reste à ventiler (${fmt(Math.max(0, st.reste))})`); return; }
+  appData.depenses.unshift({ id: uid(), label, montant,
+    date: document.getElementById('vt-date').value || today(),
+    categorie: document.getElementById('vt-cat').value, retraitId: op.id });
+  saveData(); renderCurrent();
+  openVentilation(id);
+  showToast('✅ Dépense ajoutée au retrait');
+}
+function removeVentilation(retraitId, depId) {
+  appData.depenses = appData.depenses.filter(d => String(d.id) !== String(depId));
+  saveData(); renderCurrent(); openVentilation(retraitId);
+}
+
+// ── Revenus annexes (carte du Tableau) ───────────────────────────────────────
+function renderAnnexeCard(c, ops) {
+  const annexes = ops.filter(x => x.type === 'Revenu annexe' && x.sens === 'credit' && !isTransfer(x));
+  if (!annexes.length) return;
+  const total = annexes.reduce((s, x) => s + x.montant, 0);
+  const income = noXfer(ops).filter(x => x.sens === 'credit').reduce((s, x) => s + x.montant, 0);
+  const card = el('div',{className:'card'});
+  card.innerHTML = `<div class="card-title">💼 REVENUS ANNEXES · ${fmtPeriodLabel(appData.bancaire)}</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <div style="font-family:var(--mono);font-size:20px;font-weight:700;color:#2dd4bf">+${fmt(total)}</div>
+      <div style="font-size:11px;color:var(--text3)">${income > 0 ? Math.round(total / income * 100) + ' % des revenus du cycle' : ''}</div>
+    </div>` +
+    [...annexes].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4).map(x =>
+      `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:4px 0"><span>${esc(x.note || 'Revenu annexe')} <span style="color:var(--text4)">· ${fmtDate(x.date)}</span></span><span style="font-family:var(--mono);color:#2dd4bf">+${fmt(x.montant)}</span></div>`).join('');
+  c.appendChild(card);
+}
+
+// ── Onglet Comptes : Wave, Orange Money, banques… + crédits ──────────────────
+const LOAN_KINDS = { immobilier: { icon:'🏠', label:'Crédit immobilier' }, auto: { icon:'🚗', label:'Crédit auto' }, bancaire: { icon:'🏦', label:'Crédit bancaire' } };
+
+function renderComptes(c) {
+  if (typeof computeAccountBalances !== 'function' || typeof loanStatus !== 'function') {
+    c.appendChild(emptyState('⚠️ Mise à jour requise : remplacez aussi assets/utils.js')); return;
+  }
+  const header = el('div',{className:'page-header',style:'margin-top:-8px;margin-bottom:10px;align-items:center'});
+  header.innerHTML = `<div><div class="page-total-label">COMPTES & CRÉDITS</div></div>`;
+  const bt = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#7c3aed,#4f46e5);font-size:12px;padding:10px 12px'});
+  bt.textContent = '↔ Transfert';
+  bt.onclick = () => openTransferModal();
+  header.appendChild(bt);
+  c.appendChild(header);
+
+  // Comptes
+  const accs = computeAccountBalances(appData);
+  const total = accs.reduce((s, a) => s + a.solde, 0);
+  const sum = el('div',{style:'font-size:12px;color:var(--text3);margin-bottom:10px'});
+  sum.innerHTML = `Total tous comptes : <span style="font-family:var(--mono);font-weight:700;color:${total>=0?'var(--cyan)':'var(--pink)'}">${fmt(total)}</span>`;
+  c.appendChild(sum);
+  const grid = el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:22px'});
+  accs.forEach(a => {
+    const col = a.nom === 'Wave' ? '#38bdf8' : a.nom === 'Orange Money' ? '#fb923c' : '#a78bfa';
+    const card = el('div',{style:`background:${col}0d;border:1px solid ${col}30;border-radius:16px;padding:12px`});
+    card.innerHTML = `
+      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">${a.wallet ? '📱' : '🏦'} ${esc(a.nom)}</div>
+      <div style="font-family:var(--mono);font-size:15px;font-weight:700;color:${a.solde>=0?col:'var(--red)'}">${fmt(a.solde)}</div>
+      <div style="font-size:10px;color:var(--text3);margin:3px 0 8px">${a.count} opération${a.count>1?'s':''}</div>
+      <div style="display:flex;gap:6px">
+        <button data-n="${encN(a.nom)}" onclick="openAccountOps(this.dataset.n)" style="flex:1;padding:6px;border-radius:9px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-size:10px;font-weight:600">Mouvements</button>
+        <button data-n="${encN(a.nom)}" onclick="openAccountEdit(this.dataset.n)" title="Solde initial" style="padding:6px 9px;border-radius:9px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-size:11px">✏️</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+  c.appendChild(grid);
+
+  // Crédits
+  const head = el('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'});
+  head.innerHTML = `<div class="section-title" style="margin:0">CRÉDITS</div>`;
+  const add = el('button',{className:'btn-primary',style:'background:linear-gradient(135deg,#f472b6,#be185d);font-size:12px;padding:9px 12px'});
+  add.textContent = '+ Crédit';
+  add.onclick = () => openLoanModal();
+  head.appendChild(add);
+  c.appendChild(head);
+
+  const prets = appData.prets || [];
+  if (!prets.length) {
+    c.appendChild(emptyState('Aucun crédit. Ajoutez un crédit immobilier, auto ou bancaire pour suivre l\'échéancier, le capital restant dû et votre taux d\'endettement.'));
+    return;
+  }
+  const ds = getDebtSummary(appData);
+  const rc = ds.ratio == null ? 'var(--text3)' : ds.ratio > 0.33 ? '#f87171' : ds.ratio > 0.25 ? '#fb923c' : '#4ade80';
+  const dcard = el('div',{className:'card'});
+  dcard.innerHTML = `<div style="display:flex;gap:8px;text-align:center">
+      <div style="flex:1"><div style="font-size:9px;color:var(--text3)">MENSUALITÉS</div><div style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--pink)">${fmt(ds.mensualites)}</div></div>
+      <div style="flex:1"><div style="font-size:9px;color:var(--text3)">CAPITAL RESTANT</div><div style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--orange)">${fmt(ds.restant)}</div></div>
+      <div style="flex:1"><div style="font-size:9px;color:var(--text3)">ENDETTEMENT</div><div style="font-family:var(--mono);font-size:12px;font-weight:700;color:${rc}">${ds.ratio == null ? '—' : Math.round(ds.ratio * 100) + ' %'}</div></div>
+    </div>
+    <div style="font-size:10px;color:var(--text4);text-align:center;margin-top:8px">Seuil usuel : 33 % des revenus</div>`;
+  c.appendChild(dcard);
+
+  const t0 = new Date(); t0.setHours(0,0,0,0);
+  prets.forEach(l => {
+    const k = LOAN_KINDS[l.kind] || LOAN_KINDS.bancaire;
+    const st = loanStatus(l);
+    const paid = (appData.bancaire || []).filter(x => String(x.loanId) === String(l.id)).length;
+    const days = st.next ? Math.round((st.next.date - t0) / 86400000) : null;
+    const card = el('div',{className:'card'});
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:700;color:var(--text)">${k.icon} ${esc(l.label)}</div>
+        ${st.termine ? '<span style="font-size:10px;font-weight:700;color:#4ade80;background:rgba(74,222,128,.12);border-radius:6px;padding:2px 7px">Soldé</span>' : `<span style="font-size:10px;color:var(--text3)">${Number(l.taux)||0} % · ${l.dureeMois} mois</span>`}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+        <span style="color:var(--text3)">Mensualité</span>
+        <span style="font-family:var(--mono);font-weight:700;color:var(--pink)">${fmt(st.coutMensuel)}</span>
+      </div>
+      ${st.assurance ? `<div style="font-size:10px;color:var(--text4);text-align:right;margin:-3px 0 6px">dont assurance ${fmt(st.assurance)}</div>` : ''}
+      ${st.next ? `<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px"><span style="color:var(--text3)">Prochaine échéance</span><span style="color:${days <= 5 ? '#f472b6' : 'var(--text2)'}">${fmtD(st.next.date)} · ${days <= 0 ? "aujourd'hui" : 'dans ' + days + ' j'}</span></div>` : ''}
+      <div style="height:8px;background:rgba(255,255,255,.07);border-radius:6px;overflow:hidden"><div style="height:100%;width:${Math.round(st.pctRembourse*100)}%;background:linear-gradient(90deg,#22d3ee,#4ade80);border-radius:6px"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin:5px 0 8px"><span style="white-space:nowrap">${Math.round(st.pctRembourse*100)} % remboursé</span><span style="text-align:right">Reste ${fmt(st.restant)}</span></div>
+      <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">
+        ${st.dateFin ? `Fin : <b>${fmtD(st.dateFin)}</b> (${st.moisRestants} mois restants)<br>` : ''}Intérêts restants : ${fmt(st.interetsRestants)} · Échéances constatées : ${paid}
+      </div>
+      <div style="display:flex;gap:6px">
+        ${st.next ? `<button data-id="${l.id}" onclick="openLoanPay(this.dataset.id)" style="flex:2;padding:9px;border-radius:10px;background:linear-gradient(135deg,#f472b6,#be185d);border:none;color:white;font-weight:700;font-size:12px">Payer l'échéance</button>` : ''}
+        <button data-id="${l.id}" onclick="openLoanSchedule(this.dataset.id)" style="flex:1;padding:9px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-size:12px">Échéancier</button>
+        <button data-id="${l.id}" onclick="openLoanModal(this.dataset.id)" style="padding:9px 11px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-size:12px">✏️</button>
+        <button class="item-del" data-section="prets" data-id="${l.id}" onclick="deleteItem(this.dataset.section,this.dataset.id)">🗑</button>
+      </div>`;
+    c.appendChild(card);
+  });
+}
+
+// ── Comptes : mouvements, solde initial, transfert ───────────────────────────
+function openAccountOps(enc) {
+  const nom = decN(enc);
+  const ops = appData.bancaire.filter(x => x.agence === nom).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
+  const rows = ops.map(x => {
+    const cr = x.sens === 'credit';
+    return `<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0"><div style="font-size:12px;color:var(--text)">${isTransfer(x) ? '↔ ' : ''}${esc(x.type)}${x.note ? ' — ' + esc(x.note) : ''}</div><div style="font-size:10px;color:var(--text3)">${fmtDate(x.date)}</div></div>
+      <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:${cr?'var(--cyan)':'var(--pink)'};white-space:nowrap">${cr?'+':'-'}${fmt(x.montant)}</div></div>`;
+  }).join('');
+  openSheet('📱 ' + esc(nom), 'var(--cyan)', rows || '<div style="font-size:12px;color:var(--text3)">Aucun mouvement. Utilisez ↔ Transfert ou Banque › + Ajouter (agence « ' + esc(nom) + ' »).</div>');
+}
+function openAccountEdit(enc) {
+  const nom = decN(enc);
+  const init = (appData.comptes[nom] && appData.comptes[nom].soldeInitial) || 0;
+  aiModal(`
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">Solde initial · ${esc(nom)}</div>
+    <div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:12px">Solde du compte avant votre première opération saisie dans l'app. Le solde affiché = solde initial + crédits − débits.</div>
+    <input class="form-input" id="acc-init" type="number" inputmode="numeric" value="${init}" />
+    <div style="display:flex;gap:8px"><button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:13px">Annuler</button>
+    <button data-n="${encN(nom)}" onclick="saveAccountInit(this.dataset.n)" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#0891b2);border:none;color:white;font-weight:700;font-size:13px">Enregistrer</button></div>`);
+}
+function saveAccountInit(enc) {
+  const nom = decN(enc), v = parseFloat(document.getElementById('acc-init').value);
+  appData.comptes[nom] = { soldeInitial: isNaN(v) ? 0 : v };
+  saveData(); closeModal(); renderCurrent(); showToast('✅ Solde initial enregistré');
+}
+
+function openTransferModal() {
+  const names = [...new Set([...computeAccountBalances(appData).map(a => a.nom), ...AGENCES])];
+  const opts = (sel) => names.map(n => `<option${n === sel ? ' selected' : ''}>${esc(n)}</option>`).join('');
+  openSheet('↔ Transfert entre comptes', 'var(--purple)', `
+    <div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:12px">Crée deux opérations liées (sortie + entrée). Un transfert n'est ni un revenu ni une dépense. Les frais éventuels sont enregistrés à part comme dépense bancaire.</div>
+    <label class="form-label">De</label><select class="form-select" id="tr-from">${opts('CBAO Dakar')}</select>
+    <label class="form-label">Vers</label><select class="form-select" id="tr-to">${opts('Wave')}</select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><label class="form-label">Montant</label><input class="form-input" id="tr-montant" type="number" inputmode="numeric" min="0" placeholder="Ex: 50000" /></div>
+      <div><label class="form-label">Frais (option)</label><input class="form-input" id="tr-frais" type="number" inputmode="numeric" min="0" placeholder="0" /></div>
+    </div>
+    <label class="form-label">Date</label><input class="form-input" id="tr-date" type="date" value="${today()}" />
+    <label class="form-label">Note (option)</label><input class="form-input" id="tr-note" type="text" />
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5)" onclick="saveTransfer()">Transférer</button>`);
+}
+function saveTransfer() {
+  const from = document.getElementById('tr-from').value, to = document.getElementById('tr-to').value;
+  const montant = parseFloat(document.getElementById('tr-montant').value);
+  const frais = parseFloat(document.getElementById('tr-frais').value) || 0;
+  if (from === to) { showToast('⚠️ Choisissez deux comptes différents'); return; }
+  if (!(montant > 0)) { showToast('⚠️ Montant requis'); return; }
+  const ops = buildTransferOps({ from, to, montant, frais, date: document.getElementById('tr-date').value || today(),
+                                 note: document.getElementById('tr-note').value.trim() }, uid);
+  appData.bancaire.unshift(...ops);
+  saveData(); closeModal(); renderCurrent();
+  showToast(`✅ ${fmt(montant)} transférés de ${from} vers ${to}`);
+}
+
+// ── Crédits : formulaire, paiement d'échéance, échéancier ────────────────────
+function openLoanModal(id) {
+  const l = id ? appData.prets.find(x => String(x.id) === String(id)) : null;
+  const v = (x, d = '') => (x == null ? d : x);
+  const kinds = Object.entries(LOAN_KINDS).map(([k, o]) => `<option value="${k}"${l && l.kind === k ? ' selected' : ''}>${o.icon} ${o.label}</option>`).join('');
+  const ag = AGENCES.map(a => `<option${l && l.agence === a ? ' selected' : (!l && a === 'CBAO Dakar' ? ' selected' : '')}>${esc(a)}</option>`).join('');
+  openSheet(l ? '✏️ Modifier le crédit' : '+ Nouveau crédit', 'var(--pink)', `
+    <label class="form-label">Type</label><select class="form-select" id="ln-kind">${kinds}</select>
+    <label class="form-label">Nom</label><input class="form-input" id="ln-label" type="text" placeholder="Ex: Maison VDN, Toyota, Prêt conso" value="${esc(v(l && l.label))}" />
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><label class="form-label">Capital emprunté</label><input class="form-input" id="ln-capital" type="number" inputmode="numeric" min="0" value="${v(l && l.capital)}" /></div>
+      <div><label class="form-label">Taux annuel (%)</label><input class="form-input" id="ln-taux" type="number" inputmode="decimal" step="0.01" min="0" value="${v(l && l.taux)}" /></div>
+      <div><label class="form-label">Durée (mois)</label><input class="form-input" id="ln-duree" type="number" inputmode="numeric" min="1" value="${v(l && l.dureeMois)}" /></div>
+      <div><label class="form-label">1re échéance</label><input class="form-input" id="ln-premiere" type="date" value="${v(l && l.premiereEcheance)}" /></div>
+      <div><label class="form-label">Mensualité (option)</label><input class="form-input" id="ln-mensualite" type="number" inputmode="numeric" min="0" placeholder="Calculée" value="${v(l && l.mensualite)}" /></div>
+      <div><label class="form-label">Assurance /mois</label><input class="form-input" id="ln-assurance" type="number" inputmode="numeric" min="0" placeholder="0" value="${v(l && l.assurance)}" /></div>
+    </div>
+    <label class="form-label">Compte prélevé</label><select class="form-select" id="ln-agence">${ag}</select>
+    <div style="font-size:11px;color:var(--text3);margin:2px 0 6px;line-height:1.5">Facultatif — recaler sur votre tableau d'amortissement réel (utile si vous avez déjà remboursé par anticipation) :</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <input class="form-input" id="ln-cal-cap" type="number" inputmode="numeric" min="0" placeholder="Capital restant dû" value="${v(l && l.calage && l.calage.capitalRestant)}" />
+      <input class="form-input" id="ln-cal-date" type="date" value="${v(l && l.calage && l.calage.date)}" />
+    </div>
+    <button class="btn-primary" style="width:100%;background:linear-gradient(135deg,#f472b6,#be185d)" onclick="saveLoan('${l ? l.id : ''}')">Enregistrer</button>`);
+}
+function saveLoan(id) {
+  const num = k => parseFloat(document.getElementById(k).value);
+  const label = document.getElementById('ln-label').value.trim();
+  const capital = num('ln-capital'), taux = num('ln-taux') || 0, duree = parseInt(document.getElementById('ln-duree').value, 10);
+  const premiere = document.getElementById('ln-premiere').value;
+  if (!label || !(capital > 0) || !(duree > 0) || !premiere) { showToast('⚠️ Nom, capital, durée et 1re échéance requis'); return; }
+  const calCap = num('ln-cal-cap'), calDate = document.getElementById('ln-cal-date').value;
+  if ((calCap > 0) !== Boolean(calDate)) { showToast('⚠️ Recalage : renseignez le capital restant ET la date'); return; }
+  const loan = {
+    id: id || uid(), kind: document.getElementById('ln-kind').value, label, capital, taux, dureeMois: duree, premiereEcheance: premiere,
+    mensualite: num('ln-mensualite') > 0 ? num('ln-mensualite') : null, assurance: num('ln-assurance') > 0 ? num('ln-assurance') : 0,
+    agence: document.getElementById('ln-agence').value,
+    calage: calCap > 0 ? { capitalRestant: calCap, date: calDate } : null,
+  };
+  if (!(buildAmortization(loan).rows.length)) { showToast('⚠️ Mensualité insuffisante pour amortir le capital'); return; }
+  if (id) appData.prets = appData.prets.map(x => String(x.id) === String(id) ? loan : x);
+  else appData.prets.unshift(loan);
+  saveData(); closeModal(); renderCurrent(); showToast('✅ Crédit enregistré');
+}
+
+function openLoanPay(id) {
+  const l = appData.prets.find(x => String(x.id) === String(id));
+  if (!l) return;
+  const st = loanStatus(l);
+  if (!st.next) { showToast('Aucune échéance restante'); return; }
+  const due = st.next.date, t = new Date(); t.setHours(0,0,0,0);
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const montant = Math.round(st.next.echeance + st.assurance);
+  aiModal(`
+    <div style="font-size:30px;text-align:center;margin-bottom:6px">${(LOAN_KINDS[l.kind] || LOAN_KINDS.bancaire).icon}</div>
+    <div style="font-size:15px;font-weight:700;color:var(--text);text-align:center">${esc(l.label)} — échéance ${st.next.n}</div>
+    <div style="font-family:var(--mono);font-size:20px;font-weight:700;color:var(--pink);text-align:center;margin:6px 0 4px">${fmt(montant)}</div>
+    <div style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:12px">dont capital ${fmt(st.next.capital)} · intérêts ${fmt(st.next.interets)}${st.assurance ? ' · assurance ' + fmt(st.assurance) : ''}</div>
+    <label class="form-label">Date du prélèvement</label>
+    <input class="form-input" id="lp-date" type="date" value="${iso(due <= t ? t : due)}" />
+    <div style="font-size:10px;color:var(--text3);margin:-6px 0 12px">Enregistré en Banque (Débit · Échéance prêt) sur ${esc(l.agence || 'CBAO Dakar')}.</div>
+    <div style="display:flex;gap:8px"><button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:13px">Annuler</button>
+    <button onclick="confirmLoanPay('${l.id}',${montant},${st.next.n})" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#f472b6,#be185d);border:none;color:white;font-weight:700;font-size:13px">Enregistrer</button></div>`);
+}
+function confirmLoanPay(id, montant, n) {
+  const l = appData.prets.find(x => String(x.id) === String(id));
+  if (!l) return;
+  appData.bancaire.unshift({ id: uid(), type: 'Échéance prêt', sens: 'debit', montant,
+    date: document.getElementById('lp-date').value || today(), agence: l.agence || 'CBAO Dakar',
+    note: `${l.label} — échéance ${n}`, loanId: l.id });
+  saveData(); closeModal(); renderCurrent(); showToast('✅ Échéance enregistrée');
+}
+
+function openLoanSchedule(id) {
+  const l = appData.prets.find(x => String(x.id) === String(id));
+  if (!l) return;
+  const st = loanStatus(l), t0 = new Date(); t0.setHours(0,0,0,0);
+  const fut = st.rows.filter(r => r.date >= t0);
+  const totalInt = st.rows.reduce((s, r) => s + r.interets, 0);
+  const rows = fut.slice(0, 36).map(r => `<tr><td>${r.n}</td><td>${r.date.toLocaleDateString('fr-FR',{month:'short',year:'2-digit'})}</td><td>${fmt(r.echeance)}</td><td style="color:var(--cyan)">${fmt(r.capital)}</td><td style="color:var(--pink)">${fmt(r.interets)}</td><td>${fmt(r.restant)}</td></tr>`).join('');
+  openSheet('📅 ' + esc(l.label), 'var(--pink)', `
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Intérêts sur la période d'amortissement calculée : <b style="color:var(--pink)">${fmt(totalInt)}</b> · ${fut.length} échéance(s) restante(s)${fut.length > 36 ? ' (36 premières affichées)' : ''}</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:10px;font-family:var(--mono);color:var(--text2);white-space:nowrap">
+      <thead><tr style="color:var(--text3);text-align:left"><th style="padding:4px 6px 6px 0">N°</th><th>Mois</th><th>Échéance</th><th>Capital</th><th>Intérêts</th><th>Restant</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <style>#modal-container td{padding:5px 8px 5px 0;border-top:1px solid var(--border)}</style>`);
+}
+
 // ─── BUDGETS PAR CATÉGORIE ────────────────────────────────────────────────────
 const BUD_COLORS = { over:'#f87171', warn:'#fb923c', pace:'#facc15', under:'#a78bfa', ok:'#4ade80' };
 const BUD_LABELS = { over:'Dépassé', warn:'Seuil atteint', pace:'Rythme élevé', under:'Sous le minimum', ok:'OK' };
@@ -2390,7 +2793,7 @@ function openAiConsent() {
     <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px;text-align:center">Envoyer un résumé à Claude ?</div>
     <div style="font-size:12px;color:var(--text3);line-height:1.55;margin-bottom:14px">
       Pour générer des conseils, un <b>résumé du cycle</b> est envoyé à Claude (Anthropic) via votre proxy :
-      totaux et moyennes par catégorie, prévisions, et le texte des pistes détectées (qui peut citer des libellés comme « brioche »).<br><br>
+      totaux et moyennes par catégorie, prévisions, total des mensualités et du capital restant dû (sans noms de crédits), et le texte des pistes détectées (qui peut citer des libellés comme « brioche »).<br><br>
       <b>Jamais envoyés</b> : l'historique complet, les soldes de comptes, le code PIN.
     </div>
     <div style="display:flex;gap:8px">
