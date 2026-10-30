@@ -12,6 +12,18 @@ const {
   getPeriodBlocks,
   analyzeSpending,
   evaluateBudgets,
+  suggestCategory,
+  suggestBankType,
+  isTransfer,
+  computeAccountBalances,
+  buildTransferOps,
+  isCashWithdrawal,
+  getCashStatus,
+  getCashSummary,
+  monthlyPayment,
+  buildAmortization,
+  loanStatus,
+  getDebtSummary,
   buildAiSummary,
   fmt,
   CATS_DEP_FLAT,
@@ -391,5 +403,183 @@ describe('Budgets par catégorie (min / max / seuil d\'alerte)', () => {
     const d = [dep('Resto', 25000, '2026-07-05', 1), dep('Transport', 1000, '2026-07-05', 2)];
     const res = run({ Transport: { max: 100000 }, Resto: { max: 20000 } }, d, '2026-07-15T12:00:00');
     expect(res.map(r => r.cat)).toEqual(['Resto', 'Transport']);
+  });
+});
+
+describe('Catégorisation automatique', () => {
+  const hist = [
+    { id: 1, label: 'Courses marché', montant: 30000, date: '2026-06-10', categorie: 'Alimentation' },
+    { id: 2, label: 'Courses Auchan', montant: 25000, date: '2026-06-20', categorie: 'Alimentation' },
+    { id: 3, label: 'Taxi aéroport', montant: 8000, date: '2026-06-22', categorie: 'Transport' },
+    { id: 4, label: 'Taxi bureau', montant: 3000, date: '2026-06-25', categorie: 'Transport' },
+  ];
+  test('libellé déjà saisi → catégorie de l\'historique', () => {
+    const r = suggestCategory('courses MARCHÉ', hist);
+    expect(r.cat).toBe('Alimentation');
+    expect(r.source).toBe('historique');
+  });
+  test('mot récurrent de l\'historique → vote par mots (ex. « taxi »)', () => {
+    const r = suggestCategory('Taxi Plateau', hist);
+    expect(r.cat).toBe('Transport');
+    expect(r.source).toBe('historique');
+  });
+  test('apprend vos habitudes : un même mot rangé ailleurs l\'emporte sur les mots-clés par défaut', () => {
+    const h = [
+      { id: 1, label: 'Essence Total', montant: 20000, date: '2026-06-01', categorie: 'Entretien' },
+      { id: 2, label: 'Essence Shell', montant: 20000, date: '2026-06-08', categorie: 'Entretien' },
+    ];
+    expect(suggestCategory('Essence', h).cat).toBe('Entretien');
+  });
+  test('sans historique → mots-clés par défaut', () => {
+    expect(suggestCategory('Woyofal recharge', []).cat).toBe('Facture');
+    expect(suggestCategory('Dîner au restaurant', []).cat).toBe('Resto');
+    expect(suggestCategory('Loyer juillet', []).source).toBe('mots-clés');
+  });
+  test('libellé inconnu ou vide → null', () => {
+    expect(suggestCategory('zzqx', hist)).toBeNull();
+    expect(suggestCategory('', hist)).toBeNull();
+  });
+  test('suggestBankType déduit le type d\'après la note', () => {
+    expect(suggestBankType('Commission de compte')).toBe('Agios');
+    expect(suggestBankType('retrait GAB Plateau')).toBe('Retrait GAB');
+    expect(suggestBankType('Loyer perçu VDN')).toBe('Revenu annexe');
+    expect(suggestBankType('Crédit auto — échéance')).toBe('Échéance prêt');
+    expect(suggestBankType('bonjour')).toBeNull();
+  });
+});
+
+describe('Comptes Wave / Orange Money et transferts', () => {
+  const mk = () => { let i = 0; return () => ++i; };
+  test('Wave et Orange Money existent toujours, avec leur solde initial', () => {
+    const acc = computeAccountBalances({ bancaire: [], comptes: { Wave: { soldeInitial: 15000 } } });
+    expect(acc.map(a => a.nom)).toEqual(['Wave', 'Orange Money']);
+    expect(acc[0].solde).toBe(15000);
+  });
+  test('solde = solde initial + crédits − débits, par compte', () => {
+    const bancaire = [
+      { id: 1, type: 'Virement', sens: 'credit', montant: 50000, date: '2026-07-01', agence: 'Wave' },
+      { id: 2, type: 'Virement', sens: 'debit', montant: 12000, date: '2026-07-02', agence: 'Wave' },
+      { id: 3, type: 'Salaire', sens: 'credit', montant: 600000, date: '2026-07-01', agence: 'CBAO Dakar' },
+    ];
+    const acc = computeAccountBalances({ bancaire, comptes: { Wave: { soldeInitial: 1000 } } });
+    expect(acc.find(a => a.nom === 'Wave').solde).toBe(39000);
+    expect(acc.find(a => a.nom === 'CBAO Dakar').solde).toBe(600000);
+  });
+  test('un transfert crée une sortie et une entrée liées, plus les frais en vraie dépense', () => {
+    const ops = buildTransferOps({ from: 'CBAO Dakar', to: 'Wave', montant: 40000, frais: 400, date: '2026-07-05' }, mk());
+    expect(ops.length).toBe(3);
+    expect(ops[0].sens).toBe('debit'); expect(ops[0].agence).toBe('CBAO Dakar');
+    expect(ops[1].sens).toBe('credit'); expect(ops[1].agence).toBe('Wave');
+    expect(ops[0].transfertId).toBe(ops[1].transfertId);
+    expect(isTransfer(ops[0])).toBe(true);
+    expect(ops[2].type).toBe('Frais');
+    expect(isTransfer(ops[2])).toBe(false);   // les frais comptent comme dépense
+  });
+  test('un transfert ne change pas le solde total et ne compte pas comme revenu', () => {
+    const bancaire = [{ id: 1, type: 'Salaire', sens: 'credit', montant: 600000, date: '2026-07-01', agence: 'CBAO Dakar' },
+      ...buildTransferOps({ from: 'CBAO Dakar', to: 'Wave', montant: 100000, date: '2026-07-05' }, mk())];
+    const total = computeAccountBalances({ bancaire }).reduce((s, a) => s + a.solde, 0);
+    expect(total).toBe(600000);
+    const r = analyzeSpending({ bancaire, depenses: [
+      { id: 1, label: 'a', montant: 1000, date: '2026-07-02', categorie: 'Resto' },
+      { id: 2, label: 'b', montant: 1000, date: '2026-07-03', categorie: 'Resto' },
+      { id: 3, label: 'c', montant: 1000, date: '2026-07-04', categorie: 'Resto' }] }, new Date('2026-07-20T12:00:00'));
+    expect(r.income).toBe(600000);            // le crédit du transfert est exclu
+  });
+});
+
+describe('Retraits cash à ventiler', () => {
+  const data = {
+    bancaire: [
+      { id: 10, type: 'Retrait GAB', sens: 'debit', montant: 100000, date: '2026-07-03', agence: 'CBAO Dakar' },
+      { id: 11, type: 'Salaire', sens: 'credit', montant: 600000, date: '2026-07-01', agence: 'CBAO Dakar' },
+    ],
+    depenses: [
+      { id: 1, label: 'Marché', montant: 30000, date: '2026-07-04', categorie: 'Alimentation', retraitId: 10 },
+      { id: 2, label: 'Taxi', montant: 10000, date: '2026-07-05', categorie: 'Transport', retraitId: 10 },
+      { id: 3, label: 'Autre', montant: 5000, date: '2026-07-05', categorie: 'Resto' },
+    ],
+  };
+  test('isCashWithdrawal ne reconnaît que les retraits en débit', () => {
+    expect(isCashWithdrawal(data.bancaire[0])).toBe(true);
+    expect(isCashWithdrawal(data.bancaire[1])).toBe(false);
+  });
+  test('reste à ventiler = montant du retrait − dépenses rattachées', () => {
+    const st = getCashStatus(data, 10);
+    expect(st.ventile).toBe(40000);
+    expect(st.reste).toBe(60000);
+    expect(st.items.length).toBe(2);
+    expect(st.complet).toBe(false);
+  });
+  test('résumé du cycle', () => {
+    const s = getCashSummary(data, new Date('2026-07-20T12:00:00'));
+    expect(s).toEqual({ count: 1, total: 100000, ventile: 40000, reste: 60000 });
+  });
+  test('retrait entièrement ventilé → complet', () => {
+    const d2 = { ...data, depenses: [{ id: 9, label: 'Tout', montant: 100000, date: '2026-07-04', categorie: 'Maison', retraitId: 10 }] };
+    expect(getCashStatus(d2, 10).complet).toBe(true);
+    expect(getCashSummary(d2, new Date('2026-07-20T12:00:00')).reste).toBe(0);
+  });
+});
+
+describe('Crédits : amortissement', () => {
+  test('mensualité (formule d\'annuité) et cas taux 0', () => {
+    expect(Math.round(monthlyPayment(10000000, 6, 120))).toBe(111021);   // 10 M à 6 % sur 10 ans
+    expect(monthlyPayment(1200000, 0, 12)).toBe(100000);
+  });
+  const loan = { id: 1, kind: 'immobilier', label: 'Maison', capital: 10000000, taux: 6, dureeMois: 120, premiereEcheance: '2026-02-05' };
+  test('échéancier : N lignes, solde final nul, capital remboursé = capital', () => {
+    const { rows } = buildAmortization(loan);
+    expect(rows.length).toBe(120);
+    expect(rows[rows.length - 1].restant).toBe(0);
+    const cap = rows.reduce((s, r) => s + r.capital, 0);
+    expect(Math.round(cap)).toBe(10000000);
+    expect(rows[0].interets).toBeCloseTo(50000, 0);                      // 10 M × 0,5 %
+  });
+  test('statut à une date : échéances passées, restant dû, prochaine échéance, fin', () => {
+    const st = loanStatus(loan, new Date('2026-07-20T12:00:00'));        // échéances des 5/02 … 5/07 passées = 6
+    expect(st.moisRestants).toBe(114);
+    expect(st.next.n).toBe(7);
+    expect(st.restant).toBeCloseTo(loanStatus(loan, new Date('2026-07-20T12:00:00')).rows[5].restant, 2);
+    expect(st.dateFin.getFullYear()).toBe(2036);
+    expect(st.pctRembourse > 0.03 && st.pctRembourse < 0.045).toBe(true);   // ≈ 3,7 % après 6 échéances
+    expect(st.termine).toBe(false);
+  });
+  test('assurance ajoutée au coût mensuel sans toucher à l\'amortissement', () => {
+    const st = loanStatus({ ...loan, assurance: 5000 }, new Date('2026-07-20T12:00:00'));
+    expect(Math.round(st.coutMensuel - st.mensualite)).toBe(5000);
+  });
+  test('mensualité imposée par la banque : le prêt s\'arrête quand le capital est soldé', () => {
+    const { rows } = buildAmortization({ ...loan, mensualite: 150000 });
+    expect(rows.length < 120).toBe(true);
+    expect(rows[rows.length - 1].restant).toBe(0);
+  });
+  test('calage sur le capital restant réel : l\'échéancier repart de ce solde', () => {
+    const l = { ...loan, calage: { date: '2026-07-20', capitalRestant: 9000000 } };
+    const { rows, offset } = buildAmortization(l);
+    expect(offset).toBe(6);                                              // 6 échéances déjà passées
+    expect(rows[0].n).toBe(7);
+    expect(rows[0].interets).toBeCloseTo(45000, 0);                      // 9 M × 0,5 %
+    expect(rows.length).toBe(114);
+  });
+  test('prêt terminé et données invalides', () => {
+    const old = { ...loan, capital: 100000, dureeMois: 6, premiereEcheance: '2024-01-10' };
+    expect(loanStatus(old, new Date('2026-07-20T12:00:00')).termine).toBe(true);
+    expect(buildAmortization({ capital: 0 }).rows).toEqual([]);
+  });
+  test('fin de mois : échéance du 31 ramenée au dernier jour des mois courts', () => {
+    const { rows } = buildAmortization({ capital: 100000, taux: 0, dureeMois: 3, premiereEcheance: '2026-01-31' });
+    expect(rows[1].date.getMonth()).toBe(1);
+    expect(rows[1].date.getDate()).toBe(28);
+  });
+  test('taux d\'endettement = mensualités des prêts actifs / revenus du cycle', () => {
+    const data = {
+      prets: [{ ...loan, assurance: 0 }],
+      bancaire: [{ id: 1, type: 'Salaire', sens: 'credit', montant: 500000, date: '2026-07-01', agence: 'X' }],
+    };
+    const d = getDebtSummary(data, new Date('2026-07-20T12:00:00'));
+    expect(d.actifs).toBe(1);
+    expect(Math.round(d.mensualites)).toBe(111021);
+    expect(d.ratio).toBeCloseTo(111021 / 500000, 3);
   });
 });
