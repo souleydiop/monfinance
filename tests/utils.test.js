@@ -12,6 +12,7 @@ const {
   getPeriodBlocks,
   analyzeSpending,
   evaluateBudgets,
+  getCategoryPace,
   suggestCategory,
   suggestBankType,
   isTransfer,
@@ -317,20 +318,66 @@ describe('Analyse intelligente (cost cutting)', () => {
   });
 });
 
-describe('buildAiSummary (résumé envoyé à l\'IA)', () => {
+describe('buildAiSummary (résumé envoyé à l\'IA) — portée', () => {
   const now = new Date('2026-07-30T12:00:00');
   const bancaire = [
     { id: 1, type: 'Salaire', sens: 'credit', montant: 650000, date: '2026-06-01', agence: 'CBAO Dakar' },
     { id: 2, type: 'Salaire', sens: 'credit', montant: 650000, date: '2026-07-01', agence: 'CBAO Dakar' },
   ];
+  // juin : Resto 10 000 ; juillet : Resto 25 000 (dérive vs moyenne) + 5 achats « brioche »
   const depenses = [
     { id: 1, label: 'resto midi', montant: 10000, date: '2026-06-05', categorie: 'Resto' },
-    { id: 2, label: 'resto', montant: 25000, date: '2026-07-05', categorie: 'Resto' },
     { id: 3, label: 'Courses', montant: 30000, date: '2026-06-10', categorie: 'Alimentation' },
+    ...[0, 1, 2, 3, 4].map(i => ({ id: 10 + i, label: 'brioche', montant: 5000, date: `2026-07-0${2 + i}`, categorie: 'Resto' })),
   ];
+  const res = () => analyzeSpending({ bancaire, depenses }, now, { cycleOnly: true });
+  const resFull = () => analyzeSpending({ bancaire, depenses }, now);
+
+  test('portée « cycle » : cycle en cours uniquement, aucune donnée d\'historique', () => {
+    const s = buildAiSummary(res(), { scope: 'cycle' });
+    expect(s.portee).toBe('cycle_en_cours');
+    expect(s.moyenne_cycles_precedents).toBe(undefined);
+    expect(s.prevision.prochain_cycle).toBe(undefined);
+    expect(s.prevision.tendance).toBe(undefined);
+    expect(s.categories.every(c => c.moyenne === undefined)).toBe(true);
+    const json = JSON.stringify(s);
+    expect(json).not.toContain('votre moyenne');     // aucun texte de piste comparé à l'historique
+    expect(json).not.toContain('Alimentation');      // catégorie sans dépense ce cycle : absente
+  });
+
+  test('le moteur « cycle seul » n\'utilise aucun historique mais garde les pistes valables sur le cycle', () => {
+    const full = resFull();
+    expect(full.insights.some(i => i.kind === 'overspend')).toBe(true);      // moteur complet : dérive détectée…
+    const r = res();
+    expect(r.totals.baseline).toBe(null);
+    expect(r.forecast.nextCycle).toBe(null);
+    const kinds = buildAiSummary(r, { scope: 'cycle' }).pistes.map(p => p.type);
+    ['overspend', 'pace', 'anomaly', 'recurring'].forEach(k => expect(kinds).not.toContain(k));
+    expect(kinds).toContain('micro');                                         // …mais « brioche ×5 » reste proposé
+  });
+
+  test('filet de sécurité : même si on lui passe l\'analyse complète, le résumé « cycle » filtre l\'historique', () => {
+    const kinds = buildAiSummary(resFull(), { scope: 'cycle' }).pistes.map(p => p.type);
+    ['overspend', 'pace', 'anomaly', 'recurring'].forEach(k => expect(kinds).not.toContain(k));
+    expect(buildAiSummary(resFull(), { scope: 'cycle' }).moyenne_cycles_precedents).toBe(undefined);
+  });
+
+  test('économies potentielles du mode cycle = pistes valables sur le cycle (ici « brioche » 7 500)', () => {
+    expect(buildAiSummary(res(), { scope: 'cycle' }).economies_potentielles).toBe(7500);
+    expect(buildAiSummary(resFull(), { scope: 'history' }).economies_potentielles > 7500).toBe(true);
+  });
+
+  test('scope « history » : moyennes, tendance et toutes les pistes', () => {
+    const s = buildAiSummary(resFull(), { scope: 'history' });
+    expect(s.portee).toBe('avec_historique');
+    expect(s.moyenne_cycles_precedents).toBe(40000);
+    expect(s.prevision.prochain_cycle).toBe(40000);
+    expect(buildAiSummary(resFull()).portee).toBe('avec_historique');   // l'historique est la portée par défaut
+    expect(s.pistes.map(p => p.type)).toContain('overspend');
+  });
 
   test('contient les agrégats du cycle', () => {
-    const s = buildAiSummary(analyzeSpending({ bancaire, depenses }, now));
+    const s = buildAiSummary(res(), { scope: 'cycle' });
     expect(s.devise).toBe('FCFA');
     expect(s.depenses_cycle).toBe(25000);
     expect(s.revenu_cycle).toBe(650000);
@@ -338,7 +385,7 @@ describe('buildAiSummary (résumé envoyé à l\'IA)', () => {
   });
 
   test('ne contient ni historique brut, ni agence, ni identifiant, ni date de transaction', () => {
-    const json = JSON.stringify(buildAiSummary(analyzeSpending({ bancaire, depenses }, now)));
+    const json = JSON.stringify(buildAiSummary(resFull(), { scope: 'history' }));
     expect(json).not.toContain('CBAO');
     expect(json).not.toContain('"id"');
     expect(json).not.toContain('2026-07-05');
@@ -581,5 +628,92 @@ describe('Crédits : amortissement', () => {
     expect(d.actifs).toBe(1);
     expect(Math.round(d.mensualites)).toBe(111021);
     expect(d.ratio).toBeCloseTo(111021 / 500000, 3);
+  });
+});
+
+describe('Rythme appris de l\'historique et plan anti-dépassement', () => {
+  // Cycle courant : salaire le 1er juillet ; aujourd'hui = 16 juillet (jour 16/30)
+  const now = new Date('2026-07-16T12:00:00');
+  const bancaire = [
+    { id: 1, type: 'Salaire', sens: 'credit', montant: 600000, date: '2026-05-02', agence: 'X' },
+    { id: 2, type: 'Salaire', sens: 'credit', montant: 600000, date: '2026-06-01', agence: 'X' },
+    { id: 3, type: 'Salaire', sens: 'credit', montant: 600000, date: '2026-07-01', agence: 'X' },
+  ];
+  const d = (id, cat, montant, date) => ({ id, label: cat + id, montant, date, categorie: cat });
+  const depenses = [
+    d(1, 'Loyer', 100000, '2026-05-02'), d(2, 'Alimentation', 20000, '2026-05-10'), d(3, 'Alimentation', 40000, '2026-05-25'),   // cycle -2
+    d(4, 'Loyer', 100000, '2026-06-01'), d(5, 'Alimentation', 20000, '2026-06-05'), d(6, 'Alimentation', 40000, '2026-06-20'),   // cycle -1
+    d(7, 'Loyer', 100000, '2026-07-01'), d(8, 'Alimentation', 25000, '2026-07-05'),                                              // cycle courant
+  ];
+  const data = { bancaire, depenses };
+
+  test('à ce stade du cycle, l\'habitude est apprise par catégorie (20 000 en Alimentation)', () => {
+    const p = getCategoryPace(data, now);
+    expect(p.Alimentation.learned).toBe(true);
+    expect(p.Alimentation.nCycles).toBe(2);
+    expect(p.Alimentation.habitualToDate).toBe(20000);
+    expect(p.Alimentation.habitualFull).toBe(60000);
+  });
+
+  test('projection apprise = déjà dépensé + reste habituel (25 000 + 40 000), pas une extrapolation linéaire', () => {
+    const p = getCategoryPace(data, now);
+    expect(p.Alimentation.projected).toBe(65000);
+    expect(25000 / (16 / 30)).toBeCloseTo(46875, 0);        // la linéaire sous-estimerait : 46 875
+  });
+
+  test('une charge payée en début de cycle n\'est pas sur-projetée (Loyer reste 100 000, pas 187 500)', () => {
+    expect(getCategoryPace(data, now).Loyer.projected).toBe(100000);
+  });
+
+  test('sans historique : repli sur l\'extrapolation linéaire', () => {
+    const p = getCategoryPace(data, now, { cycleOnly: true });
+    expect(p.Alimentation.learned).toBe(false);
+    expect(p.Alimentation.projected).toBeCloseTo(46875, 0);
+  });
+
+  test('budget : dépassement prévu détecté AVANT qu\'il arrive, avec le reste par jour', () => {
+    const [b] = evaluateBudgets({ ...data, budgets: { Alimentation: { max: 62000 } } }, now);
+    expect(b.status).toBe('pace');
+    expect(b.learned).toBe(true);
+    expect(b.overrun).toBe(3000);                            // 65 000 projetés − 62 000 de plafond
+    expect(b.daysLeft).toBe(14);
+    expect(b.perDay).toBeCloseTo((62000 - 25000) / 14, 2);   // ≈ 2 643 F/jour pour tenir le plafond
+    expect(b.message).toContain('dépassement prévu');
+  });
+
+  test('budget : une charge fixe sous son plafond reste « ok » (pas de fausse alerte)', () => {
+    const [b] = evaluateBudgets({ ...data, budgets: { Loyer: { max: 150000 } } }, now);
+    expect(b.status).toBe('ok');          // 100 000 / 150 000 = 67 % : sous le seuil, et pas sur-projeté (187 500) par l'extrapolation
+  });
+
+  test('résumé IA (historique) : cycles précédents agrégés, rythme habituel, projection et plan budgétaire', () => {
+    const full = analyzeSpending(data, now);
+    const budgets = evaluateBudgets({ ...data, budgets: { Alimentation: { max: 62000 } } }, now);
+    const s = buildAiSummary(full, { scope: 'history', budgets });
+    expect(s.historique.length).toBe(2);
+    expect(s.historique[0].par_categorie.Alimentation).toBe(60000);
+    const ali = s.categories.find(c => c.categorie === 'Alimentation');
+    expect(ali.habituel_a_ce_stade).toBe(20000);
+    expect(ali.projection_fin_cycle).toBe(65000);
+    expect(s.cycle.jours_restants).toBe(14);
+    expect(s.budgets[0]).toEqual({ categorie: 'Alimentation', plafond: 62000, minimum: null, depense: 25000, reste: 37000,
+      statut: 'pace', par_jour_restant: 2643, projection_fin_cycle: 65000, depassement_prevu: 3000 });
+  });
+
+  test('résumé IA (cycle seul) : plan budgétaire conservé mais aucun historique ni projection apprise', () => {
+    const only = analyzeSpending(data, now, { cycleOnly: true });
+    const budgets = evaluateBudgets({ ...data, budgets: { Alimentation: { max: 62000 } } }, now, { cycleOnly: true });
+    const s = buildAiSummary(only, { scope: 'cycle', budgets });
+    expect(s.historique).toBe(undefined);
+    expect(s.moyenne_cycles_precedents).toBe(undefined);
+    expect(s.categories.every(c => c.habituel_a_ce_stade === undefined)).toBe(true);
+    expect(s.budgets[0].plafond).toBe(62000);
+  });
+
+  test('aucun montant d\'opération ni date de transaction dans le résumé d\'historique', () => {
+    const json = JSON.stringify(buildAiSummary(analyzeSpending(data, now), { scope: 'history' }));
+    expect(json).not.toContain('2026-05-10');
+    expect(json).not.toContain('"id"');
+    expect(json).not.toContain('Alimentation5');             // pas de libellé d'opération
   });
 });
