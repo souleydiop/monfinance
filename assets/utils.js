@@ -291,12 +291,53 @@ function _inBlock(dateStr, b) {
   return d >= b.start && d <= b.end;
 }
 
-function analyzeSpending(data, now = new Date()) {
+// ── Rythme appris : combien l'on dépense d'habitude, par catégorie, AU MÊME STADE du cycle ──
+// projected = dépensé à ce jour + ce qui reste habituellement à dépenser d'ici la fin du cycle
+// (tient compte des charges payées en début de cycle, contrairement à une extrapolation linéaire).
+// Sans historique : repli sur l'extrapolation linéaire du cycle en cours.
+function _dayIndex(dateStr, b) { return Math.round((new Date(dateStr + 'T00:00:00') - b.start) / DAY_MS); }
+function getCategoryPace(data, now = new Date(), opts = {}) {
+  const bancaire = (data && data.bancaire) || [], depenses = (data && data.depenses) || [];
+  const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
+  const blocks = getPeriodBlocks(bancaire, 4, now);
+  const cur = blocks[0];
+  const totalDays = Math.round((cur.end - cur.start) / DAY_MS) + 1;
+  const daysElapsed = Math.min(Math.max(Math.round((today0 - cur.start) / DAY_MS) + 1, 1), totalDays);
+  const elapsedFrac = daysElapsed / totalDays;
+  const prev = opts.cycleOnly ? [] : blocks.slice(1).filter(b => depenses.some(d => _inBlock(d.date, b)));
+  const win = Math.min(daysElapsed, 30);
+
+  const sum = (cat, b, days) => depenses
+    .filter(d => getGrpForCat(d.categorie) === cat && _inBlock(d.date, b) && (days == null || _dayIndex(d.date, b) < days))
+    .reduce((t, d) => t + d.montant, 0);
+
+  const cats = new Set();
+  depenses.forEach(d => { if (_inBlock(d.date, cur) || prev.some(b => _inBlock(d.date, b))) cats.add(getGrpForCat(d.categorie)); });
+  const out = {};
+  cats.forEach(cat => {
+    const current = sum(cat, cur, null);
+    if (prev.length) {
+      const full = _mean(prev.map(b => sum(cat, b, null)));
+      const toDate = _mean(prev.map(b => sum(cat, b, win)));
+      out[cat] = { current, habitualToDate: toDate, habitualFull: full, projected: current + Math.max(0, full - toDate),
+                   nCycles: prev.length, learned: true, daysElapsed, totalDays };
+    } else {
+      out[cat] = { current, habitualToDate: null, habitualFull: null,
+                   projected: (elapsedFrac >= 0.2 && elapsedFrac < 1) ? current / elapsedFrac : current,
+                   nCycles: 0, learned: false, daysElapsed, totalDays };
+    }
+  });
+  return out;
+}
+
+// opts.cycleOnly : n'utilise AUCUNE donnée des cycles précédents (ni moyennes, ni médianes, ni récurrence)
+function analyzeSpending(data, now = new Date(), opts = {}) {
+  const cycleOnly = Boolean(opts.cycleOnly);
   const bancaire = (data && data.bancaire) || [];
   const depenses = (data && data.depenses) || [];
   const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
 
-  const blocks = getPeriodBlocks(bancaire, 4, now);
+  const blocks = getPeriodBlocks(bancaire, 7, now);
   const cur = blocks[0];
   const totalDays = Math.round((cur.end - cur.start) / DAY_MS) + 1;
   const daysElapsed = Math.min(Math.max(Math.round((today0 - cur.start) / DAY_MS) + 1, 1), totalDays);
@@ -304,14 +345,16 @@ function analyzeSpending(data, now = new Date()) {
 
   const curItems = depenses.filter(d => _inBlock(d.date, cur));
   const curTotal = curItems.reduce((s, d) => s + d.montant, 0);
-  const prevBlocks = blocks.slice(1).filter(b => depenses.some(d => _inBlock(d.date, b)));
+  const withData = b => depenses.some(d => _inBlock(d.date, b));
+  const prevBlocks = cycleOnly ? [] : blocks.slice(1, 4).filter(withData);   // référence : 3 cycles précédents
+  const histBlocks = cycleOnly ? [] : blocks.slice(1).filter(withData);      // apprentissage : jusqu'à 6 cycles
   const prevTotals = prevBlocks.map(b => depenses.filter(d => _inBlock(d.date, b)).reduce((s, d) => s + d.montant, 0));
 
   const result = {
     enough: depenses.length >= 3,
     period: { start: cur.start, end: cur.end, daysElapsed, totalDays },
     totals: { current: curTotal, baseline: prevTotals.length ? _mean(prevTotals) : null },
-    categories: [], insights: [], potentialSaving: 0,
+    categories: [], cycles: [], insights: [], potentialSaving: 0,
     forecast: { nextCycle: null, trend: 'flat', projectedCurrent: null },
     income: 0, incomeAnnexe: 0, spendRatio: null, cash: null, debt: null,
   };
@@ -326,20 +369,30 @@ function analyzeSpending(data, now = new Date()) {
   });
   const catBase = {};
   const cats = new Set(Object.keys(catCur));
-  depenses.forEach(d => { if (prevBlocks.some(b => _inBlock(d.date, b))) cats.add(getGrpForCat(d.categorie)); });
+  depenses.forEach(d => { if (prevBlocks.some(b => _inBlock(d.date, b))) cats.add(getGrpForCat(d.categorie)); });  // vide si cycleOnly
   cats.forEach(g => {
     if (!prevBlocks.length) { catBase[g] = null; return; }
     const perBlock = prevBlocks.map(b =>
       depenses.filter(d => _inBlock(d.date, b) && getGrpForCat(d.categorie) === g).reduce((s, d) => s + d.montant, 0));
     catBase[g] = _mean(perBlock);
   });
+  const pace = getCategoryPace(data, now, { cycleOnly });
   result.categories = [...cats].map(g => {
-    const total = catCur[g] || 0, base = catBase[g];
+    const total = catCur[g] || 0, base = catBase[g], pc = pace[g];
     return { cat: g, current: total, baseline: base, count: (catItems[g] || []).length,
+             habitualToDate: pc ? pc.habitualToDate : null, projected: pc ? pc.projected : total, learned: Boolean(pc && pc.learned),
              delta: base == null ? null : total - base,
              pct: base ? (total / base - 1) : null,
              discretionary: g in CUT_RATES };
   }).sort((a, b) => b.current - a.current);
+
+  result.cycles = histBlocks.map(b => {
+    const items = depenses.filter(d => _inBlock(d.date, b));
+    const byCat = {};
+    items.forEach(d => { const g = getGrpForCat(d.categorie); byCat[g] = (byCat[g] || 0) + d.montant; });
+    const income = bancaire.filter(x => x.sens === 'credit' && !isTransfer(x) && _inBlock(x.date, b)).reduce((t, x) => t + x.montant, 0);
+    return { start: b.start, end: b.end, total: items.reduce((t, d) => t + d.montant, 0), income, byCat };
+  });
 
   // ── Pistes d'économies par catégorie (on garde la meilleure par catégorie) ─
   const counted = [];
@@ -354,12 +407,11 @@ function analyzeSpending(data, now = new Date()) {
       cands.push({ kind: 'overspend', saving, severity: pct > 0.3 ? 'high' : 'medium', icon: '📈',
         title: `${g} au-dessus de votre moyenne`,
         detail: `${fmt(total)} ce cycle contre ${fmt(base)} en moyenne (+${Math.round(pct * 100)} %). Revenir à la moyenne économiserait ${fmt(saving)}.` });
-    } else if (base && base > 0 && !FIXED_CATS.includes(g) && elapsedFrac >= 0.15 && elapsedFrac < 0.7
-               && total / elapsedFrac > base * 1.25) {
-      const proj = total / elapsedFrac, saving = proj - base;
+    } else if (base && base > 0 && pace[g] && pace[g].learned && elapsedFrac < 1 && pace[g].projected > base * 1.25) {
+      const pc = pace[g], saving = pc.projected - base;
       if (saving >= MIN_SAVING) cands.push({ kind: 'pace', saving, severity: 'medium', icon: '⏱️',
-        title: `${g} : rythme trop rapide`,
-        detail: `Au rythme actuel (${daysElapsed}/${totalDays} jours), ${g} atteindrait ≈ ${fmt(proj)} contre ${fmt(base)} habituellement.` });
+        title: `${g} : risque de dépassement`,
+        detail: `D'ordinaire, à ce stade du cycle (jour ${daysElapsed}/${totalDays}), vous avez dépensé ≈ ${fmt(pc.habitualToDate)} en ${g} ; la projection de fin de cycle est ≈ ${fmt(pc.projected)} contre ${fmt(base)} en moyenne.` });
     }
 
     if (!FIXED_CATS.includes(g)) {
@@ -403,6 +455,7 @@ function analyzeSpending(data, now = new Date()) {
   // ── Anomalies : z-score robuste (MAD) sur l'historique de la catégorie ─────
   const anomalies = [];
   [...cats].forEach(g => {
+    if (cycleOnly) return;                           // l'anomalie se mesure par rapport à l'historique de la catégorie
     const hist = depenses.filter(d => getGrpForCat(d.categorie) === g).map(d => d.montant);
     if (hist.length < 5) return;
     const med = _median(hist), mad = _median(hist.map(x => Math.abs(x - med)));
@@ -423,7 +476,7 @@ function analyzeSpending(data, now = new Date()) {
     (groups[k] = groups[k] || { label: d.label, months: new Set(), amts: [] });
     groups[k].months.add(d.date.slice(0, 7)); groups[k].amts.push(d.montant);
   });
-  const recurring = Object.values(groups)
+  const recurring = cycleOnly ? [] : Object.values(groups)
     .filter(g => g.months.size >= 2 && _mean(g.amts) > 0 && _std(g.amts) / _mean(g.amts) <= 0.15)
     .map(g => ({ label: g.label, avg: _mean(g.amts) }))
     .sort((a, b) => b.avg - a.avg);
@@ -703,7 +756,7 @@ function getDebtSummary(data, now = new Date()) {
 // ═══════════════════════════════════════════════════════════════════════════════
 const BUDGET_RANK = { over: 0, warn: 1, pace: 2, under: 3, ok: 4 };
 
-function evaluateBudgets(data, now = new Date()) {
+function evaluateBudgets(data, now = new Date(), opts = {}) {
   const budgets = (data && data.budgets) || {};
   const entries = Object.entries(budgets).filter(([, b]) => b && (Number(b.min) > 0 || Number(b.max) > 0));
   if (!entries.length) return [];
@@ -715,6 +768,8 @@ function evaluateBudgets(data, now = new Date()) {
   const totalDays = Math.round((cur.end - cur.start) / DAY_MS) + 1;
   const daysElapsed = Math.min(Math.max(Math.round((today0 - cur.start) / DAY_MS) + 1, 1), totalDays);
   const elapsedFrac = daysElapsed / totalDays;
+  const daysLeft = totalDays - daysElapsed;
+  const pace = getCategoryPace(data, now, opts);
 
   const out = entries.map(([cat, b]) => {
     const max = Number(b.max) > 0 ? Number(b.max) : null;
@@ -722,6 +777,11 @@ function evaluateBudgets(data, now = new Date()) {
     const spent = depenses
       .filter(d => _inBlock(d.date, cur) && getGrpForCat(d.categorie) === cat)
       .reduce((s, d) => s + d.montant, 0);
+    const pc = pace[cat];
+    const learned = Boolean(pc && pc.learned);
+    const projected = pc ? pc.projected : spent;
+    const perDay = (max != null && daysLeft > 0) ? Math.max(0, max - spent) / daysLeft : null;
+    const perDayTxt = perDay != null ? ` (≈ ${fmt(perDay)}/jour pendant ${daysLeft} j)` : '';
 
     let status = 'ok', message;
     if (max != null && spent > max) {
@@ -729,18 +789,20 @@ function evaluateBudgets(data, now = new Date()) {
       message = `Plafond dépassé de ${fmt(spent - max)} (${fmt(spent)} / ${fmt(max)})`;
     } else if (max != null && spent >= max * alertPct / 100) {
       status = 'warn';
-      message = `${Math.round(spent / max * 100)} % du plafond utilisé — il reste ${fmt(max - spent)}`;
-    } else if (max != null && !FIXED_CATS.includes(cat) && elapsedFrac >= 0.2 && elapsedFrac < 1 && spent / elapsedFrac > max) {
+      message = `${Math.round(spent / max * 100)} % du plafond utilisé — il reste ${fmt(max - spent)}${perDayTxt}`;
+    } else if (max != null && projected > max && elapsedFrac < 1
+               && (learned || (!FIXED_CATS.includes(cat) && elapsedFrac >= 0.2))) {
       status = 'pace';
-      message = `Au rythme actuel : ≈ ${fmt(spent / elapsedFrac)} en fin de cycle (plafond ${fmt(max)})`;
+      message = `Au rythme ${learned ? 'habituel (appris de vos cycles précédents)' : 'actuel'} : ≈ ${fmt(projected)} en fin de cycle, soit ${fmt(projected - max)} de dépassement prévu${perDayTxt}`;
     } else if (min != null && spent < min && elapsedFrac >= 0.7) {
       status = 'under';
       message = `Minimum non atteint : ${fmt(spent)} / ${fmt(min)} (il manque ${fmt(min - spent)})`;
     } else {
-      message = max != null ? `${fmt(spent)} sur ${fmt(max)} (${Math.round(spent / max * 100)} %)`
+      message = max != null ? `${fmt(spent)} sur ${fmt(max)} (${Math.round(spent / max * 100)} %)${perDayTxt}`
                             : `${fmt(spent)} dépensés (minimum ${fmt(min)})`;
     }
-    return { cat, spent, min, max, status, message,
+    return { cat, spent, min, max, status, message, projected, learned, daysLeft, perDay,
+             overrun: max != null ? Math.max(0, projected - max) : null,
              pct: max != null ? spent / max : null,
              remaining: max != null ? max - spent : null };
   });
@@ -755,24 +817,62 @@ function _ymd(d) {
   const p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-function buildAiSummary(res) {
+// Pistes dont le texte ne dépend QUE du cycle en cours. Les autres comparent à l'historique
+// (moyenne des cycles passés, médiane de la catégorie, charges récurrentes sur plusieurs mois).
+const AI_CYCLE_ONLY_KINDS = ['micro', 'target', 'fees', 'budget', 'cash', 'debt'];
+
+// opts.scope : 'history' (défaut) = cycle en cours + apprentissage des cycles précédents ; 'cycle' = cycle en cours seul
+// opts.budgets : résultat de evaluateBudgets() → plan budgétaire (plafonds, reste par jour, dépassement prévu)
+function buildAiSummary(res, opts = {}) {
+  const history = opts.scope !== 'cycle';
   const r0 = v => (v == null ? null : Math.round(v));
-  return {
+  const ratio = v => (v == null ? null : Math.round(v * 100) / 100);
+
+  const insights = history ? res.insights : res.insights.filter(i => AI_CYCLE_ONLY_KINDS.includes(i.kind));
+  // L'économie potentielle est recalculée sur les pistes réellement transmises
+  const potentiel = history ? res.potentialSaving
+                            : insights.filter(i => i.counted).reduce((s, i) => s + i.saving, 0);
+  const categories = (history ? res.categories : res.categories.filter(c => c.current > 0)).slice(0, 12)
+    .map(c => history
+      ? { categorie: c.cat, ce_cycle: r0(c.current), moyenne_cycles: r0(c.baseline), habituel_a_ce_stade: r0(c.habitualToDate),
+          projection_fin_cycle: r0(c.projected), nb_depenses: c.count }
+      : { categorie: c.cat, ce_cycle: r0(c.current), nb_depenses: c.count });
+
+  const out = {
     devise: 'FCFA',
-    cycle: { debut: _ymd(res.period.start), fin: _ymd(res.period.end), jours_ecoules: res.period.daysElapsed, jours_total: res.period.totalDays },
+    portee: history ? 'avec_historique' : 'cycle_en_cours',
+    cycle: { debut: _ymd(res.period.start), fin: _ymd(res.period.end), jours_ecoules: res.period.daysElapsed, jours_total: res.period.totalDays,
+             jours_restants: res.period.totalDays - res.period.daysElapsed },
     revenu_cycle: r0(res.income),
     depenses_cycle: r0(res.totals.current),
-    moyenne_cycles_precedents: r0(res.totals.baseline),
-    ratio_depenses_revenu: res.spendRatio == null ? null : Math.round(res.spendRatio * 100) / 100,
-    prevision: { fin_de_cycle: r0(res.forecast.projectedCurrent), prochain_cycle: r0(res.forecast.nextCycle), tendance: res.forecast.trend },
-    categories: res.categories.slice(0, 12).map(c => ({ categorie: c.cat, ce_cycle: r0(c.current), moyenne: r0(c.baseline), nb_depenses: c.count })),
-    pistes: res.insights.slice(0, 8).map(i => ({ type: i.kind, titre: i.title, detail: i.detail, economie: r0(i.saving), chiffree: i.counted })),
-    economies_potentielles: r0(res.potentialSaving),
+    ratio_depenses_revenu: ratio(res.spendRatio),
+    prevision: history
+      ? { fin_de_cycle: r0(res.forecast.projectedCurrent), prochain_cycle: r0(res.forecast.nextCycle), tendance: res.forecast.trend }
+      : { fin_de_cycle: r0(res.forecast.projectedCurrent) },          // simple projection du rythme du cycle en cours
+    categories,
+    pistes: insights.slice(0, 8).map(i => ({ type: i.kind, titre: i.title, detail: i.detail, economie: r0(i.saving), chiffree: i.counted })),
+    economies_potentielles: r0(potentiel),
     revenus_annexes_cycle: r0(res.incomeAnnexe),
     cash_non_ventile: res.cash ? r0(res.cash.reste) : null,
-    credits: res.debt ? { nb_actifs: res.debt.actifs, mensualites_totales: r0(res.debt.mensualites), capital_restant_total: r0(res.debt.restant),
-                          taux_endettement: res.debt.ratio == null ? null : Math.round(res.debt.ratio * 100) / 100 } : null,
+    credits: res.debt ? Object.assign(
+      { nb_actifs: res.debt.actifs, mensualites_totales: r0(res.debt.mensualites), taux_endettement: ratio(res.debt.ratio) },
+      history ? { capital_restant_total: r0(res.debt.restant) } : {}) : null,
   };
+  if (history) {
+    out.moyenne_cycles_precedents = r0(res.totals.baseline);
+    // Apprentissage : totaux par catégorie des cycles précédents (agrégats uniquement, jamais d'opération)
+    out.historique = (res.cycles || []).slice(0, 6).map(c => ({
+      debut: _ymd(c.start), fin: _ymd(c.end), depenses: r0(c.total), revenu: r0(c.income),
+      par_categorie: Object.fromEntries(Object.entries(c.byCat).map(([k, v]) => [k, r0(v)])),
+    }));
+  }
+  if (opts.budgets && opts.budgets.length) {
+    out.budgets = opts.budgets.map(b => ({
+      categorie: b.cat, plafond: r0(b.max), minimum: r0(b.min), depense: r0(b.spent), reste: r0(b.remaining),
+      statut: b.status, par_jour_restant: r0(b.perDay), projection_fin_cycle: r0(b.projected), depassement_prevu: r0(b.overrun),
+    }));
+  }
+  return out;
 }
 
 // ── Export UMD : window.* dans le navigateur, module.exports sous Node/Jest ──
@@ -784,7 +884,7 @@ if (typeof module !== 'undefined' && module.exports) {
     fmt, fmtDate, uid,
     isCurrentMonth, getSalaryPeriod, isInSalaryPeriod, fmtPeriodLabel,
     getPreviousSalaryPeriod, isInPreviousSalaryPeriod,
-    normalizeLabel, getPeriodBlocks, analyzeSpending, evaluateBudgets, buildAiSummary, CUT_RATES, FIXED_CATS,
+    normalizeLabel, getPeriodBlocks, getCategoryPace, analyzeSpending, evaluateBudgets, buildAiSummary, AI_CYCLE_ONLY_KINDS, CUT_RATES, FIXED_CATS,
     suggestCategory, suggestBankType, BANK_TYPE_RULES, BANK_TYPE_SENS,
     isTransfer, computeAccountBalances, buildTransferOps, WALLET_ACCOUNTS,
     isCashWithdrawal, getCashStatus, getCashSummary, CASH_TYPES,
