@@ -52,6 +52,21 @@ describe('proxy Conseiller IA', () => {
     expect(body.output_config.effort).toBe('low');
   });
 
+  test('le prompt impose de rester sur le cycle en cours quand portee = cycle_en_cours', async () => {
+    let body;
+    await handle(mkReq(), env, (u, o) => { body = JSON.parse(o.body); return anthropicOk(); });
+    expect(body.system).toContain('cycle_en_cours');
+    expect(body.system).toContain('UNIQUEMENT sur ce cycle');
+  });
+
+  test('le prompt demande des solutions anti-dépassement appuyées sur l\'historique appris', async () => {
+    let body;
+    await handle(mkReq(), env, (u, o) => { body = JSON.parse(o.body); return anthropicOk(); });
+    expect(body.system).toContain('ÉVITER LES DÉPASSEMENTS');
+    expect(body.system).toContain('avec_historique');
+    expect(body.system).toContain('par_jour_restant');
+  });
+
   test('origine non autorisée → 403 sans appel à Anthropic', async () => {
     let called = false;
     const r = await handle(mkReq({ origin: 'https://evil.example' }), env, () => { called = true; return anthropicOk(); });
