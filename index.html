@@ -2732,11 +2732,14 @@ function aiConfig() {
 function aiPeriodTag() {
   return (typeof getSalaryPeriod === 'function') ? getSalaryPeriod(appData.bancaire).start.toISOString().slice(0,10) : '';
 }
+// Portée des données envoyées à l'IA : 'history' (défaut) = cycle en cours + apprentissage des cycles précédents ; 'cycle' = cycle en cours uniquement
+function aiScope() { return localStorage.getItem('mf_ai_scope_v2') === 'cycle' ? 'cycle' : 'history'; }   // défaut : cycle en cours + apprentissage de l'historique
+function aiConsentKey(scope) { return scope === 'history' ? 'mf_ai_consent_history' : 'mf_ai_consent'; }
 function aiLoadCached() {
   if (aiState.text || aiState.loading) return;
   try {
     const last = JSON.parse(localStorage.getItem('mf_ai_last') || 'null');
-    if (last && last.tag === aiPeriodTag() && last.text) aiState = { loading:false, text:last.text, error:'', at:last.at };
+    if (last && last.tag === aiPeriodTag() + ':' + aiScope() && last.text) aiState = { loading:false, text:last.text, error:'', at:last.at };
   } catch {}
 }
 
@@ -2764,6 +2767,11 @@ function openAiSettings() {
       <input class="form-input" id="ai-code" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(cfg.code)}" style="margin-bottom:0;flex:1" />
       <button type="button" onclick="const i=document.getElementById('ai-code');i.type=i.type==='password'?'text':'password'" style="padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-size:14px">👁</button>
     </div>
+    <label class="form-label">Données envoyées à l'IA</label>
+    <select class="form-select" id="ai-scope">
+      <option value="history"${aiScope()==='history'?' selected':''}>Cycle en cours + apprentissage de l'historique (recommandé)</option>
+      <option value="cycle"${aiScope()==='cycle'?' selected':''}>Cycle en cours uniquement (confidentialité maximale)</option>
+    </select>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button onclick="clearAiSettings()" style="flex:1;padding:12px;border-radius:12px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:var(--red);font-weight:600;font-size:13px">Effacer</button>
       <button onclick="saveAiSettings()" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#0891b2);border:none;color:white;font-weight:700;font-size:13px">Enregistrer</button>
@@ -2775,43 +2783,53 @@ function saveAiSettings() {
   if (endpoint && !/^https:\/\//i.test(endpoint)) { showToast('⚠️ L\'adresse doit commencer par https://'); return; }
   localStorage.setItem('mf_ai_endpoint', endpoint);
   localStorage.setItem('mf_ai_code', code);
+  const scopeEl = document.getElementById('ai-scope');
+  if (scopeEl) localStorage.setItem('mf_ai_scope_v2', scopeEl.value === 'cycle' ? 'cycle' : 'history');
+  aiState = { loading:false, text:'', error:'', at:null };   // le conseil affiché dépendait de l'ancienne portée
   document.getElementById('modal-container').innerHTML = '';
   showToast('✅ Réglages IA enregistrés');
   if (currentTab === 'charts') render();
 }
 function clearAiSettings() {
-  ['mf_ai_endpoint','mf_ai_code','mf_ai_consent','mf_ai_last'].forEach(k => localStorage.removeItem(k));
+  ['mf_ai_endpoint','mf_ai_code','mf_ai_consent','mf_ai_consent_history','mf_ai_scope','mf_ai_scope_v2','mf_ai_last'].forEach(k => localStorage.removeItem(k));
   aiState = { loading:false, text:'', error:'', at:null };
   document.getElementById('modal-container').innerHTML = '';
   showToast('Réglages IA effacés');
   if (currentTab === 'charts') render();
 }
 
-function openAiConsent() {
+function openAiConsent(scope) {
+  scope = scope || aiScope();
+  const hist = scope === 'history';
   aiModal(`
     <div style="font-size:30px;text-align:center;margin-bottom:8px">🤖</div>
     <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px;text-align:center">Envoyer un résumé à Claude ?</div>
     <div style="font-size:12px;color:var(--text3);line-height:1.55;margin-bottom:14px">
-      Pour générer des conseils, un <b>résumé du cycle</b> est envoyé à Claude (Anthropic) via votre proxy :
-      totaux et moyennes par catégorie, prévisions, total des mensualités et du capital restant dû (sans noms de crédits), et le texte des pistes détectées (qui peut citer des libellés comme « brioche »).<br><br>
-      <b>Jamais envoyés</b> : l'historique complet, les soldes de comptes, le code PIN.
+      ${hist
+        ? `Pour analyser votre <b>cycle en cours</b> et <b>apprendre de vos habitudes</b>, un résumé <b>agrégé</b> est envoyé à Claude (Anthropic) via votre proxy : totaux par catégorie du cycle en cours et des cycles précédents (jusqu'à 6), moyennes, rythme habituel, budgets et plafonds par catégorie, mensualités de crédit, et le texte des pistes détectées (qui peut citer des libellés comme « brioche »).`
+        : `Un résumé du <b>cycle en cours uniquement</b> est envoyé à Claude (Anthropic) via votre proxy : totaux par catégorie, projection de fin de cycle, budgets, mensualités de crédit (sans noms), et le texte des pistes détectées. Aucune donnée des cycles précédents.`}<br><br>
+      <b>Jamais envoyés</b> : les opérations une par une, les dates de transactions, les soldes de comptes, le code PIN.
     </div>
     <div style="display:flex;gap:8px">
       <button onclick="document.getElementById('modal-container').innerHTML=''" style="flex:1;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text2);font-weight:600;font-size:13px">Annuler</button>
-      <button onclick="localStorage.setItem('mf_ai_consent','1');document.getElementById('modal-container').innerHTML='';askAdvisor()" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#0891b2);border:none;color:white;font-weight:700;font-size:13px">J'accepte</button>
+      <button onclick="localStorage.setItem('${aiConsentKey(scope)}','1');document.getElementById('modal-container').innerHTML='';askAdvisor()" style="flex:1;padding:12px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#0891b2);border:none;color:white;font-weight:700;font-size:13px">J'accepte</button>
     </div>`);
 }
 
 async function askAdvisor() {
   const cfg = aiConfig();
   if (!cfg.endpoint || !cfg.code) { openAiSettings(); return; }
-  if (localStorage.getItem('mf_ai_consent') !== '1') { openAiConsent(); return; }
+  if (localStorage.getItem(aiConsentKey(aiScope())) !== '1') { openAiConsent(aiScope()); return; }
   if (typeof analyzeSpending !== 'function' || typeof buildAiSummary !== 'function') { showToast('⚠️ Mise à jour requise (assets/utils.js)'); return; }
 
   const qEl = document.getElementById('ai-question');
   const question = qEl ? qEl.value.trim().slice(0, 300) : '';
   let summary;
-  try { summary = buildAiSummary(analyzeSpending(appData)); } catch { showToast('⚠️ Analyse impossible'); return; }
+  try {
+    const cycleOnly = aiScope() === 'cycle';
+    const budgets = typeof evaluateBudgets === 'function' ? evaluateBudgets(appData, new Date(), { cycleOnly }) : [];
+    summary = buildAiSummary(analyzeSpending(appData, new Date(), { cycleOnly }), { scope: aiScope(), budgets });
+  } catch { showToast('⚠️ Analyse impossible'); return; }
 
   aiState = { loading: true, text: '', error: '', at: null };
   if (currentTab === 'charts') render();
@@ -2828,7 +2846,7 @@ async function askAdvisor() {
     if (!r.ok) throw new Error(data.error || ('Erreur ' + r.status));
     const at = new Date().toISOString();
     aiState = { loading: false, text: data.text || '', error: '', at };
-    localStorage.setItem('mf_ai_last', JSON.stringify({ tag: aiPeriodTag(), text: aiState.text, at }));
+    localStorage.setItem('mf_ai_last', JSON.stringify({ tag: aiPeriodTag() + ':' + aiScope(), text: aiState.text, at }));
   } catch (e) {
     const msg = e.name === 'AbortError' ? 'Délai dépassé, réessayez.'
               : (e instanceof TypeError ? 'Proxy injoignable ou origine refusée. Ouvrez l\'adresse du proxy dans le navigateur : elle doit afficher « ok: true » et votre site dans origines_autorisees.' : e.message);
@@ -2844,7 +2862,8 @@ function renderAiBlock(card) {
   let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div style="font-size:12px;font-weight:700;color:var(--text)">🤖 Conseiller IA (Claude)</div>
       <button onclick="openAiSettings()" style="background:none;border:none;color:var(--text3);font-size:11px">⚙️ Réglages</button>
-    </div>`;
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin:-4px 0 8px">📅 Portée : ${aiScope() === 'history' ? 'cycle en cours + apprentissage de l\'historique' : 'cycle en cours uniquement'}</div>`;
   if (aiState.loading) {
     html += `<div style="font-size:12px;color:var(--cyan);padding:10px;text-align:center">⏳ Claude analyse votre cycle…</div>`;
   } else {
@@ -2857,7 +2876,7 @@ function renderAiBlock(card) {
     if (!cfg.endpoint || !cfg.code) {
       html += `<div style="font-size:11px;color:var(--text3);margin-bottom:8px;line-height:1.5">Pour activer le conseiller, déployez le proxy (dossier <b>worker/</b>) puis renseignez-le dans ⚙️ Réglages.</div>`;
     } else {
-      html += `<input class="form-input" id="ai-question" type="text" maxlength="300" placeholder="Question (facultatif) : pourquoi mes dépenses augmentent ?" style="margin-bottom:8px;font-size:12px" />`;
+      html += `<input class="form-input" id="ai-question" type="text" maxlength="300" placeholder="${aiScope() === 'history' ? 'Question (facultatif) : comment tenir mon budget Resto ?' : 'Question sur ce cycle (facultatif) : où économiser ?'}" style="margin-bottom:8px;font-size:12px" />`;
     }
     html += `<button onclick="askAdvisor()" style="width:100%;padding:11px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#0891b2);border:none;color:white;font-weight:700;font-size:13px">${aiState.text ? '↻ Nouvelle analyse' : (cfg.endpoint && cfg.code ? '🤖 Demander conseil à Claude' : '⚙️ Configurer le conseiller IA')}</button>`;
   }
